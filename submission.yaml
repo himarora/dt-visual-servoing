@@ -1,3 +1,7 @@
 challenge: aido1_LF1-v3
 protocol: aido1_remote1-v3
 user-label: "Random execution"
+description: |
+    This is a simple template for an agent that babbles random commands.
+
+    [This code is documented here](https://docs.duckietown.org/DT18/AIDO/out/challenge_aido1_lf1_template_random.html).
