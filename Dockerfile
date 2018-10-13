@@ -1,14 +1,7 @@
 # Definition of Submission container
 
-# We start from tensorflow-gpu image
-FROM tensorflow/tensorflow:latest-gpu
-
-# from https://github.com/tensorflow/tensorflow/issues/10776
-# this may not be needed if you use pytorch image
-RUN cd /usr/local/cuda/lib64 \
-    && mv stubs/libcuda.so ./ \
-    && ln -s libcuda.so libcuda.so.1 \
-    && ldconfig
+# We start from Duckietown ROS image
+FROM duckietown/rpi-duckiebot-base:master18
 
 # DO NOT MODIFY: your submission won't run if you do
 RUN apt-get update -y && apt-get install -y --no-install-recommends \

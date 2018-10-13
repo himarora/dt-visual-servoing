@@ -5,6 +5,9 @@ import gym_duckietown_agent  # DO NOT CHANGE THIS IMPORT (the environments are d
 import numpy as np
 from duckietown_challenges import wrap_solution, ChallengeSolution, ChallengeInterfaceSolution, InvalidSubmission
 
+# ROS imports
+import rospy
+from rosagent import ROSAgent
 
 def solve(gym_environment, cis):
     # python has dynamic typing, the line below can help IDEs with autocompletion
@@ -13,7 +16,6 @@ def solve(gym_environment, cis):
     cis.info('Creating model.')
     # you can have logging capabilties through the solution interface (cis).
     # the info you log can be retrieved from your submission files.
-
     # We get environment from the Evaluation Engine
     cis.info('Making environment')
     env = gym.make(gym_environment)
@@ -22,11 +24,23 @@ def solve(gym_environment, cis):
     observation = env.reset()
     # While there are no signal of completion (simulation done)
     # we run the predictions for a number of episodes, don't worry, we have the control on this part
-    while True:
+
+    # Now, initialize the ROS stuff here:
+    agent = ROSAgent()
+    r = rospy.Rate(10)
+
+    while not rospy.shutdown():
         # we passe the observation to our model, and we get an action in return
-        action = np.random.uniform(-1, +1, 2)
         # we tell the environment to perform this action and we get some info back in OpenAI Gym style
-        observation, reward, done, info = env.step(action)
+        
+        # The action is updated inside of agent by other nodes asynchronously
+        observation, reward, done, info = env.step(agent.action)
+
+        # To trigger the lane following pipeline, we publish the image 
+        # and camera_infos to the correct topics defined in rosagent
+        agent._publish_img(observation)
+        agent._publish_info()
+
         # here you may want to compute some stats, like how much reward are you getting
         # notice, this reward may no be associated with the challenge score.
 
@@ -37,6 +51,8 @@ def solve(gym_environment, cis):
             break
         if done:
             env.reset()
+
+        r.sleep()
 
 
 class Submission(ChallengeSolution):
