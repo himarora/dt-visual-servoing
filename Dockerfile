@@ -30,5 +30,8 @@ WORKDIR /workspace
 # DO NOT MODIFY: your submission won't run if you do
 ENV DUCKIETOWN_SERVER=evaluator
 
+# For ROS Agent - pulls the default configuration files
+ENV HOSTNAME=default
+
 # let's see what you've got there...
-CMD python solution.py
+CMD /bin/bash -c "roslaunch lf_slim.launch & && python solution.py"

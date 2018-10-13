@@ -34,7 +34,12 @@ def solve(gym_environment, cis):
         # we tell the environment to perform this action and we get some info back in OpenAI Gym style
         
         # The action is updated inside of agent by other nodes asynchronously
-        observation, reward, done, info = env.step(agent.action)
+        action = agent.action
+        # Edge case - if the nodes aren't ready yet
+        if action == np.array([0, 0]): 
+            continue
+            
+        observation, reward, done, info = env.step(action)
 
         # To trigger the lane following pipeline, we publish the image 
         # and camera_infos to the correct topics defined in rosagent
@@ -52,6 +57,7 @@ def solve(gym_environment, cis):
         if done:
             env.reset()
 
+        # Run the main loop at 10Hz
         r.sleep()
 
 

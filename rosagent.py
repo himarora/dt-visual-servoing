@@ -1,4 +1,3 @@
-from duckietown_slimremote.pc.robot import RemoteRobot
 import rospy
 from sensor_msgs.msg import CompressedImage, CameraInfo
 from duckietown_msgs.msg import Twist2DStamped
