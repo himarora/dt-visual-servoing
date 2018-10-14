@@ -23,6 +23,9 @@ WORKDIR /workspace
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
+# Need to upgrade Pillow for Old ROS stack
+RUN pip install pillow --user --upgrade
+
 # let's copy all our solution files to our workspace
 # if you have more file use the COPY command to move them to the workspace
 COPY solution.py ./
@@ -32,8 +35,8 @@ COPY rosagent.py ./
 COPY lf_slim.launch ./
 
 # Source it to add messages to path
-RUN /bin/bash -c "echo source /home/software/catkin_ws/devel/setup.bash >> $HOME/.bashrc"
-RUN /bin/bash -c "echo source /opt/ros/kinetic/devel/seteup.bash >> $HOME/.bashrc"
+RUN echo "source /home/software/catkin_ws/devel/setup.bash" >> ~/.bashrc
+RUN echo "source /opt/ros/kinetic/devel/setup.bash" >> ~/.bashrc
 RUN /bin/bash -c "export PYTHONPATH="/usr/local/lib/python2.7/dist-packages:$PYTHONPATH""
 
 # DO NOT MODIFY: your submission won't run if you do
@@ -42,11 +45,10 @@ ENV DUCKIETOWN_SERVER=evaluator
 # For ROS Agent - pulls the default configuration files
 ENV HOSTNAME=default
 
-COPY test.py /workspace
-
 RUN ["cross-build-end"]
-
 ENTRYPOINT ["qemu3-arm-static"]
 
 # let's see what you've got there...
-CMD ./solution.py
+# CMD ["/bin/bash", "-c", "source /home/software/docker/env.sh && . /home/software/set_vehicle_name.sh && ./solution2.py"]
+
+CMD ["/bin/bash", "-ci", "./solution.py"]

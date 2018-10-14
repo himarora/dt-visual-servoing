@@ -34,30 +34,29 @@ def solve(gym_environment, cis):
     uuid = roslaunch.rlutil.get_or_generate_uuid(None, False)
     roslaunch.configure_logging(uuid)
     roslaunch_path = os.path.join(os.getcwd(), "lf_slim.launch")
-    self.launch = roslaunch.parent.ROSLaunchParent(uuid, [roslaunch_path])
-    self.launch.start()
+    launch = roslaunch.parent.ROSLaunchParent(uuid, [roslaunch_path])
+    launch.start()
  
     # Start the ROSAgent, which handles publishing images and subscribing to action 
     agent = ROSAgent()
     r = rospy.Rate(15)
 
-    while not rospy.shutdown():
+    while not rospy.is_shutdown():
         # we passe the observation to our model, and we get an action in return
         # we tell the environment to perform this action and we get some info back in OpenAI Gym style
         
-        # The action is updated inside of agent by other nodes asynchronously
-        action = agent.action
-        # Edge case - if the nodes aren't ready yet
-        if action == np.array([0, 0]): 
-            continue
-            
-        observation, reward, done, info = env.step(action)
-
         # To trigger the lane following pipeline, we publish the image 
         # and camera_infos to the correct topics defined in rosagent
         agent._publish_img(observation)
         agent._publish_info()
 
+        # The action is updated inside of agent by other nodes asynchronously
+        action = agent.action
+        # Edge case - if the nodes aren't ready yet
+        if np.array_equal(action, np.array([0, 0])):
+            continue
+            
+        observation, reward, done, info = env.step(action)
         # here you may want to compute some stats, like how much reward are you getting
         # notice, this reward may no be associated with the challenge score.
 
