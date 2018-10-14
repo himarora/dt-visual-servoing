@@ -31,11 +31,12 @@ def solve(gym_environment, cis):
     # we run the predictions for a number of episodes, don't worry, we have the control on this part
 
     # Now, initialize the ROS stuff here:
-    roscore = subprocess.Popen(["roscore"], shell=True)
-    time.sleep(3)
-
-    roslaunch = subprocess.Popen(["roslaunch", "lf_slim.launch"], shell=True)
-     
+    uuid = roslaunch.rlutil.get_or_generate_uuid(None, False)
+    roslaunch.configure_logging(uuid)
+    roslaunch_path = os.path.join(os.getcwd(), "lf_slim.launch")
+    self.launch = roslaunch.parent.ROSLaunchParent(uuid, [roslaunch_path])
+    self.launch.start()
+ 
     # Start the ROSAgent, which handles publishing images and subscribing to action 
     agent = ROSAgent()
     r = rospy.Rate(15)

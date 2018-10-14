@@ -37,9 +37,7 @@ WORKDIR /workspace
 
 # Source it to add messages to path
 RUN /bin/bash -c "echo source /home/software/catkin_ws/devel/setup.bash >> $HOME/.bashrc"
-
-# Upgrade numpy
-# RUN pip2 install -U numpy
+RUN /bin/bash -c "export PYTHONPATH="/usr/local/lib/python2.7/dist-packages:$PYTHONPATH""
 
 # DO NOT MODIFY: your submission won't run if you do
 ENV DUCKIETOWN_SERVER=evaluator
@@ -50,7 +48,6 @@ ENV HOSTNAME=default
 COPY test.py /workspace
 
 RUN ["cross-build-end"]
-
 
 # let's see what you've got there...
 CMD python solution.py
