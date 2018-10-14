@@ -6,8 +6,13 @@ import numpy as np
 from duckietown_challenges import wrap_solution, ChallengeSolution, ChallengeInterfaceSolution, InvalidSubmission
 
 # ROS imports
+import os
 import rospy
+import roslaunch
 from rosagent import ROSAgent
+import subprocess
+import time
+
 
 def solve(gym_environment, cis):
     # python has dynamic typing, the line below can help IDEs with autocompletion
@@ -26,8 +31,14 @@ def solve(gym_environment, cis):
     # we run the predictions for a number of episodes, don't worry, we have the control on this part
 
     # Now, initialize the ROS stuff here:
+    roscore = subprocess.Popen(["roscore"], shell=True)
+    time.sleep(3)
+
+    roslaunch = subprocess.Popen(["roslaunch", "lf_slim.launch"], shell=True)
+     
+    # Start the ROSAgent, which handles publishing images and subscribing to action 
     agent = ROSAgent()
-    r = rospy.Rate(10)
+    r = rospy.Rate(15)
 
     while not rospy.shutdown():
         # we passe the observation to our model, and we get an action in return
@@ -57,7 +68,7 @@ def solve(gym_environment, cis):
         if done:
             env.reset()
 
-        # Run the main loop at 10Hz
+        # Run the main loop at 15Hz
         r.sleep()
 
 

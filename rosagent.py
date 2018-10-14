@@ -73,6 +73,3 @@ class ROSAgent(object):
             self._publish_img(img)
             self._publish_info()
             self.r.sleep()
-
-r = ROSAgent()
-r.spin()
