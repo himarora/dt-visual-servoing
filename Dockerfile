@@ -17,6 +17,7 @@ COPY lf_slim.launch ./
 ENV DUCKIETOWN_SERVER=evaluator
 
 # For ROS Agent - pulls the default configuration files for Duckietown stack
+# Think of this as the vehicle name
 ENV HOSTNAME=default
 
 RUN ["cross-build-end"]
