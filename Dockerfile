@@ -49,5 +49,7 @@ COPY test.py /workspace
 
 RUN ["cross-build-end"]
 
+ENTRYPOINT ["qemu3-arm-static"]
+
 # let's see what you've got there...
 CMD python solution.py
