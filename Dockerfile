@@ -31,16 +31,15 @@ COPY solution.py /workspace
 # For ROS Agent - Additional Files
 COPY rosagent.py /workspace
 COPY lf_slim.launch /workspace
-COPY catkin_ws /workspace/catkin_ws
 
 # we make the workspace our working directory
 WORKDIR /workspace
 
-# Build the catkin_ws
-RUN /bin/bash -c "source /opt/ros/kinetic/setup.bash && catkin_make -j -C catkin_ws/"
-
 # Source it to add messages to path
-RUN /bin/bash -c "echo source catkin_ws/devel/setup.bash >> $HOME/.bashrc"
+RUN /bin/bash -c "echo source /home/software/catkin_ws/devel/setup.bash >> $HOME/.bashrc"
+
+# Upgrade numpy
+# RUN pip2 install -U numpy
 
 # DO NOT MODIFY: your submission won't run if you do
 ENV DUCKIETOWN_SERVER=evaluator

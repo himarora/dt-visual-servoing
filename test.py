@@ -1,14 +1,14 @@
 import os
 import rospy
-# import roslaunch
+import roslaunch
 from rosagent import ROSAgent
 import subprocess
 import time
 
-# Now, initialize the ROS stuff here:
-print("roscore")
-roscore = subprocess.Popen(["roscore"], shell=True)
-time.sleep(3)
-
 print("roslaunch")
-roslaunch = subprocess.Popen(["roslaunch lf_slim.launch"], shell=True)
+
+uuid = roslaunch.rlutil.get_or_generate_uuid(None, False)
+roslaunch.configure_logging(uuid)
+roslaunch_path = os.path.join(os.getcwd(), "lf_slim.launch")
+launch = roslaunch.parent.ROSLaunchParent(uuid, [roslaunch_path])
+launch.start()
