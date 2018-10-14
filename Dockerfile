@@ -1,6 +1,6 @@
 # Definition of Submission container
 
-# We start from a base ROS image
+# We start from the AIDO1_LF1 ROS template
 FROM duckietown/challenge-aido1_lf1-template-ros:v3
 
 RUN ["cross-build-start"]
@@ -16,7 +16,7 @@ COPY lf_slim.launch ./
 # DO NOT MODIFY: your submission won't run if you do
 ENV DUCKIETOWN_SERVER=evaluator
 
-# For ROS Agent - pulls the default configuration files
+# For ROS Agent - pulls the default configuration files for Duckietown stack
 ENV HOSTNAME=default
 
 RUN ["cross-build-end"]
