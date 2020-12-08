@@ -49,7 +49,7 @@ class LineDetector:
         # initialize the variables that will hold the processed images
         self.bgr = np.empty(0)  #: Holds the ``BGR`` representation of an image
         self.hsv = np.empty(0)  #: Holds the ``HSV`` representation of an image
-        self.canny_edges = np.empty(0)  #: Holds the Canny edges of an image
+        self.canny_edges = np.empty(0)  #: Holds the Canny edges of an image     # 80 x 160
 
     def setImage(self, image):
         """

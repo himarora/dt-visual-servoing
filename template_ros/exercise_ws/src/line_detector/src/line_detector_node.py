@@ -127,32 +127,15 @@ class LineDetectorNode(DTROS):
             queue_size=1
         )
 
+        self.lines = {c: [None] * 3 for c in ["WHITE", "YELLOW", "RED"]}
+
 
     def thresholds_cb(self, thresh_msg):
         self.anti_instagram_thresholds["lower"] = thresh_msg.low
         self.anti_instagram_thresholds["higher"] = thresh_msg.high
         self.ai_thresholds_received = True
 
-
-    def image_cb(self, image_msg):
-        """
-        Processes the incoming image messages.
-
-        Performs the following steps for each incoming image:
-
-        #. Performs color correction
-        #. Resizes the image to the ``~img_size`` resolution
-        #. Removes the top ``~top_cutoff`` rows in order to remove the part of the image that doesn't include the road
-        #. Extracts the line segments in the image using :py:class:`line_detector.LineDetector`
-        #. Converts the coordinates of detected segments to normalized ones
-        #. Creates and publishes the resultant :obj:`duckietown_msgs.msg.SegmentList` message
-        #. Creates and publishes debug images if there is a subscriber to the respective topics
-
-        Args:
-            image_msg (:obj:`sensor_msgs.msg.CompressedImage`): The receive image message
-
-        """
-        # Decode from compressed image with OpenCV
+    def prepare_image(self, image_msg):
         try:
             image = self.bridge.compressed_imgmsg_to_cv2(image_msg)
         except ValueError as e:
@@ -174,7 +157,76 @@ class LineDetectorNode(DTROS):
         if img_size[0] != width_original or img_size[1] != height_original:
             image = cv2.resize(image, img_size, interpolation=cv2.INTER_NEAREST)
         image = image[self._top_cutoff:, :, :]
+        return image
 
+    @staticmethod
+    def get_color_coordinates(color_mask, im_edge, dist_thres=75):
+        i_coords, j_coords = np.meshgrid(range(color_mask.shape[0]),
+                                         range(color_mask.shape[1]),
+                                         indexing='ij')
+        dist = np.sqrt(i_coords ** 2 + j_coords ** 2)
+        dist_mask = np.logical_and(dist > dist_thres,
+                                   i_coords > 10)
+        ii = np.where(np.logical_and(np.logical_and(color_mask, im_edge),
+                                     dist_mask))
+        return np.array([ii[1], ii[0]]).T
+
+    @staticmethod
+    def get_abc(x, y, vx, vy):
+        a = 1 / ((vx / vy) * y - x)
+        b = - vx / (vy * (vx / vy * y - x))
+        c = 1
+        return a[0], b[0], c
+
+    def find_lines(self, image):
+        color_range = {
+            "WHITE": {"MIN": np.array([0, 0, 70], np.uint8), "MAX": np.array([180, 60, 255], np.uint8)},
+            "YELLOW": {"MIN": np.array([23, 30, 60], np.uint8), "MAX": np.array([34, 255, 255], np.uint8)},
+            "RED": ({"MIN": np.array([0, 30, 60], np.uint8), "MAX": np.array([12, 255, 255], np.uint8)}, {
+                "MIN": np.array([170, 30, 60], np.uint8), "MAX": np.array([180, 255, 255], np.uint8)
+            })
+        }
+        im_edge = self.detector.canny_edges
+        im_hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        lines = {c: [None] * 3 for c in ["WHITE", "YELLOW", "RED"]}
+        for color in ["WHITE", "YELLOW", "RED"]:
+            im_color = 0.
+            if color == "RED":
+                for i in range(2):
+                    im_color += cv2.inRange(im_hsv, color_range[color][i]["MIN"], color_range[color][i]["MAX"])
+            else:
+                im_color += cv2.inRange(im_hsv, color_range[color]["MIN"], color_range[color]["MAX"])
+            color_coordinates = self.get_color_coordinates(im_color, im_edge)   # n x 2
+            try:
+                [vx, vy, x, y] = cv2.fitLine(color_coordinates, cv2.DIST_HUBER, 0, 0.01, 0.01)
+                color_line = self.get_abc(x, y, vx, vy)
+                lines[color] = color_line
+            # If no line is found
+            except:
+                pass
+        self.lines = lines
+        self.log(lines)
+
+    def image_cb(self, image_msg):
+        """
+        Processes the incoming image messages.
+
+        Performs the following steps for each incoming image:
+
+        #. Performs color correction
+        #. Resizes the image to the ``~img_size`` resolution
+        #. Removes the top ``~top_cutoff`` rows in order to remove the part of the image that doesn't include the road
+        #. Extracts the line segments in the image using :py:class:`line_detector.LineDetector`
+        #. Converts the coordinates of detected segments to normalized ones
+        #. Creates and publishes the resultant :obj:`duckietown_msgs.msg.SegmentList` message
+        #. Creates and publishes debug images if there is a subscriber to the respective topics
+
+        Args:
+            image_msg (:obj:`sensor_msgs.msg.CompressedImage`): The receive image message
+
+        """
+        # Decode from compressed image with OpenCV
+        image = self.prepare_image(image_msg)
 
         # Extract the line segments for every color
         self.detector.setImage(image)
@@ -242,6 +294,8 @@ class LineDetectorNode(DTROS):
                 debug_image_msg = self.bridge.cv2_to_imgmsg(debug_img, encoding="bgr8")
                 debug_image_msg.header = image_msg.header
                 publisher.publish(debug_image_msg)
+
+        self.find_lines(image)
 
     @staticmethod
     def _to_segment_msg(lines, normals, color):
