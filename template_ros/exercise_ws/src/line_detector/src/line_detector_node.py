@@ -8,7 +8,7 @@ from sensor_msgs.msg import CompressedImage, Image
 from duckietown_msgs.msg import Segment, SegmentList, AntiInstagramThresholds
 from line_detector import LineDetector, ColorRange, plotSegments, plotMaps
 from image_processing.anti_instagram import AntiInstagram
-
+from custom_msgs.msg import Pixel, PixelList, PixelListList
 from duckietown.dtros import DTROS, NodeType, TopicType
 
 
@@ -110,6 +110,10 @@ class LineDetectorNode(DTROS):
             "~debug/ranges_HV", Image, queue_size=1,
             dt_topic_type=TopicType.DEBUG
         )
+        self.pub_color_coordinates = rospy.Publisher(
+            "~color_coordinates", PixelListList, queue_size=1,
+            dt_topic_type=TopicType.PERCEPTION
+        )
 
         # Subscribers
         self.sub_image = rospy.Subscriber(
@@ -124,6 +128,13 @@ class LineDetectorNode(DTROS):
             "~thresholds",
             AntiInstagramThresholds,
             self.thresholds_cb,
+            queue_size=1
+        )
+
+        self.sub_color_coordinates_ground = rospy.Subscriber(
+            "/agent/ground_projection_node",
+            PixelListList,
+            self.color_coordinates_ground_cb,
             queue_size=1
         )
 
@@ -178,7 +189,36 @@ class LineDetectorNode(DTROS):
         c = 1
         return a[0], b[0], c
 
-    def find_lines(self, image):
+    @staticmethod
+    def pixels_to_pixel_list_msg(pixels):
+        pixel_msgs = []
+        for pixel in pixels:
+            pixel_msg = Pixel()
+            pixel_msg.u, pixel_msg.v = pixel
+            pixel_msgs.append(pixel_msg)
+        pixel_list = PixelList()
+        pixel_list.pixels = pixel_msgs
+        return pixel_list
+
+    @staticmethod
+    def pixel_list_msg_to_pixels(pixel_list_msg):
+        pixel_list = pixel_list_msg.pixels
+        pixels = []
+        for pixel in pixel_list:
+            pixels.append([pixel.u, pixel.v])
+        return np.array(pixels, np.uint8)
+
+    def color_coordinates_ground_cb(self, color_coordinates_msg):
+        pixel_lists = color_coordinates_msg.pixel_list
+        pixel_list_list = []
+        for pixel_l in pixel_lists:
+            pixels = self.pixel_list_msg_to_pixels(pixel_l)
+            pixel_list_list.append(pixels)
+            [vx, vy, x, y] = cv2.fitLine(pixels, cv2.DIST_HUBER, 0, 0.01, 0.01)
+            color_line = self.get_abc(x, y, vx, vy)
+            print(color_line)
+
+    def publish_color_coordinates(self, image):
         color_range = {
             "WHITE": {"MIN": np.array([0, 0, 70], np.uint8), "MAX": np.array([180, 60, 255], np.uint8)},
             "YELLOW": {"MIN": np.array([23, 30, 60], np.uint8), "MAX": np.array([34, 255, 255], np.uint8)},
@@ -189,6 +229,7 @@ class LineDetectorNode(DTROS):
         im_edge = self.detector.canny_edges
         im_hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         lines = {c: [None] * 3 for c in ["WHITE", "YELLOW", "RED"]}
+        pixel_list_msgs = []
         for color in ["WHITE", "YELLOW", "RED"]:
             im_color = 0.
             if color == "RED":
@@ -197,6 +238,8 @@ class LineDetectorNode(DTROS):
             else:
                 im_color += cv2.inRange(im_hsv, color_range[color]["MIN"], color_range[color]["MAX"])
             color_coordinates = self.get_color_coordinates(im_color, im_edge)   # n x 2
+            coordinates_list_msg = self.pixels_to_pixel_list_msg(color_coordinates)
+            pixel_list_msgs.append(coordinates_list_msg)
             try:
                 [vx, vy, x, y] = cv2.fitLine(color_coordinates, cv2.DIST_HUBER, 0, 0.01, 0.01)
                 color_line = self.get_abc(x, y, vx, vy)
@@ -204,6 +247,9 @@ class LineDetectorNode(DTROS):
             # If no line is found
             except:
                 pass
+        msg = PixelListList()
+        msg.pixel_lists = pixel_list_msgs
+        self.pub_color_coordinates.publish(msg)
         self.lines = lines
         self.log(lines)
 
@@ -295,7 +341,7 @@ class LineDetectorNode(DTROS):
                 debug_image_msg.header = image_msg.header
                 publisher.publish(debug_image_msg)
 
-        self.find_lines(image)
+        self.publish_color_coordinates(image)
 
     @staticmethod
     def _to_segment_msg(lines, normals, color):

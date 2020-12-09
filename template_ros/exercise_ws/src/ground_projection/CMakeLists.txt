@@ -1,20 +1,23 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(line_detector)
+project(ground_projection)
+
 
 find_package(catkin REQUIRED COMPONENTS
+  cv_bridge
+  image_transport
   roscpp
   rospy
   custom_msgs
-  duckietown_msgs # Every duckietown packages should use this.
-  cv_bridge
-  # XXX add anti_instagram?
+  duckietown_msgs
+  sensor_msgs
+  std_msgs
+  geometry_msgs
+  image_geometry
 )
 
 catkin_python_setup()
 
-
 catkin_package()
-
 
 include_directories(
   ${catkin_INCLUDE_DIRS}
