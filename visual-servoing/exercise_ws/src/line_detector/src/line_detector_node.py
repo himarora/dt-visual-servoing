@@ -126,6 +126,16 @@ class LineDetectorNode(DTROS):
             dt_topic_type=TopicType.DEBUG
         )
 
+        self.pub_d_vs_lines = rospy.Publisher(
+            "/agent/line_detector_node/debug/vs_lines", Image, queue_size=1,
+            dt_topic_type=TopicType.DEBUG
+        )
+
+        self.pub_d_vs_lines_checkpoint = rospy.Publisher(
+            "/agent/line_detector_node/debug/vs_lines_checkpoint", Image, queue_size=1,
+            dt_topic_type=TopicType.DEBUG
+        )
+
         # Subscribers
         self.sub_image = rospy.Subscriber(
             "~image/compressed",
@@ -155,12 +165,19 @@ class LineDetectorNode(DTROS):
             queue_size=1
         )
 
-        self.sub_key_press = rospy.Subscriber("/agent/line_detector_node/key_pressed", String, self.cb_key_pressed, queue_size=1)
+        self.sub_key_press = rospy.Subscriber("/agent/line_detector_node/key_pressed", String, self.cb_key_pressed,
+                                              queue_size=1)
         self.checkpoint_image = None
         self.current_image = None
-        self.current_lines = [[None] * 3, [None] * 3, [None] * 3]   # WYR
-        self.checkpoint_lines = [[None] * 3, [None] * 3, [None] * 3]    # WYR
+        self.current_lines = [[None] * 3, [None] * 3, [None] * 3]  # WYR
+        self.checkpoint_lines = [[None] * 3, [None] * 3, [None] * 3]  # WYR
+        self.current_lines_cv = [[None] * 4, [None] * 4, [None] * 4]  # WYR
+        self.checkpoint_lines_cv = [[None] * 4, [None] * 4, [None] * 4]  # WYR
+        self.current_ground_color_coordinates = []
+        self.checkpoint_ground_color_coordinates = []
+        self.img_shape = None
         self.H = None
+        self.debug_img_bg = None
 
     def thresholds_cb(self, thresh_msg):
         self.anti_instagram_thresholds["lower"] = thresh_msg.low
@@ -241,7 +258,9 @@ class LineDetectorNode(DTROS):
              [a_red_0, b_red_0, c_red_0],
              [a_yellow_0, b_yellow_0, c_yellow_0]]
         ).astype(float)
-        b = np.array([a_white_1, a_red_1, a_yellow_1, b_white_1, b_red_1, b_yellow_1, c_white_1, c_red_1, c_yellow_1]).astype(float)
+        b = np.array(
+            [a_white_1, a_red_1, a_yellow_1, b_white_1, b_red_1, b_yellow_1, c_white_1, c_red_1, c_yellow_1]).astype(
+            float)
         A = np.zeros((9, 9), dtype=float)
         A[:3, :3] = A[3:6, 3:6] = A[6:, 6:] = lines
         H_prime = np.linalg.inv(A) @ b
@@ -263,20 +282,31 @@ class LineDetectorNode(DTROS):
         """
         pixel_lists = color_coordinates_msg.pixel_lists
         pixel_list_list = []
-        lines = [[None] * 3, [None] * 3, [None] * 3]   # WYR
+        lines = [[None] * 3, [None] * 3, [None] * 3]  # WYR
+        lines_cv = [[None] * 4, [None] * 4, [None] * 4]  # WYR
         for i, pixel_l in enumerate(pixel_lists):
             pixels = self.pixel_list_msg_to_pixels(pixel_l, dist_thres=5.)
             pixel_list_list.append(pixels)
             if len(pixels) >= 2:
-                [vx, vy, x, y] = cv2.fitLine(pixels, cv2.DIST_HUBER, 0, 0.01, 0.01)
+                line_cv = [vx, vy, x, y] = cv2.fitLine(pixels, cv2.DIST_HUBER, 0, 0.01, 0.01)
+                lines_cv[i] = line_cv
                 color_line = self.get_abc(x, y, vx, vy)
                 lines[i] = color_line
         # Set line equations to corresponding values depending on whether they are for checkpoint or not
         if checkpoint:
             self.checkpoint_lines = lines
+            self.checkpoint_lines_cv = lines_cv
+            self.checkpoint_ground_color_coordinates = pixel_list_list
         else:
             self.current_lines = lines
+            self.current_lines_cv = lines_cv
+            self.current_ground_color_coordinates = pixel_list_list
 
+        publisher = self.pub_d_vs_lines_checkpoint if checkpoint else self.pub_d_vs_lines
+        if publisher.get_num_connections() > 0:
+            debug_image_msg = self.bridge.cv2_to_imgmsg(self.debug_ground_lines(checkpoint=checkpoint))
+            # debug_image_msg.header = seglist_out.header
+            publisher.publish(debug_image_msg)
         self.log(f"CUR: {self.current_lines}, CKP: {self.checkpoint_lines}")
         # If the current image or the checkpoint image changes, compute the homography
         # Needs to have all three lines
@@ -343,6 +373,8 @@ class LineDetectorNode(DTROS):
         """
         # Decode from compressed image with OpenCV
         image = self.prepare_image(image_msg)
+        if not self.img_shape:
+            self.img_shape = image.shape
 
         # Extract the line segments for every color
         self.detector.setImage(image)
@@ -408,7 +440,6 @@ class LineDetectorNode(DTROS):
                 self.pub_d_checkpoint_image.publish(debug_image_msg)
                 print("Published checkpoint image")
 
-
         for channels in ['HS', 'SV', 'HV']:
             publisher = getattr(self, 'pub_d_ranges_%s' % channels)
             if publisher.get_num_connections() > 0:
@@ -419,6 +450,74 @@ class LineDetectorNode(DTROS):
 
         self.current_image = image
         self.publish_color_coordinates(image, checkpoint=False)
+
+    def init_debug_bg_img(self):
+        if self.debug_img_bg is not None:
+            return
+
+        # initialize gray image
+        self.debug_img_bg = np.ones((400, 400, 3), np.uint8) * 128
+
+        # draw vertical lines of the grid
+        for vline in np.arange(40, 361, 40):
+            cv2.line(self.debug_img_bg,
+                     pt1=(vline, 20),
+                     pt2=(vline, 300),
+                     color=(255, 255, 0),
+                     thickness=1)
+
+        # draw the coordinates
+        cv2.putText(self.debug_img_bg, "-20cm", (120 - 25, 300 + 15), cv2.FONT_HERSHEY_PLAIN, 0.8, (255, 255, 0), 1)
+        cv2.putText(self.debug_img_bg, "  0cm", (200 - 25, 300 + 15), cv2.FONT_HERSHEY_PLAIN, 0.8, (255, 255, 0), 1)
+        cv2.putText(self.debug_img_bg, "+20cm", (280 - 25, 300 + 15), cv2.FONT_HERSHEY_PLAIN, 0.8, (255, 255, 0), 1)
+
+        # draw horizontal lines of the grid
+        for hline in np.arange(20, 301, 40):
+            cv2.line(self.debug_img_bg,
+                     pt1=(40, hline),
+                     pt2=(360, hline),
+                     color=(255, 255, 0),
+                     thickness=1)
+
+        # draw the coordinates
+        cv2.putText(self.debug_img_bg, "20cm", (2, 220 + 3), cv2.FONT_HERSHEY_PLAIN, 0.8, (255, 255, 0), 1)
+        cv2.putText(self.debug_img_bg, " 0cm", (2, 300 + 3), cv2.FONT_HERSHEY_PLAIN, 0.8, (255, 255, 0), 1)
+
+        # draw robot marker at the center
+        cv2.line(self.debug_img_bg,
+                 pt1=(200 + 0, 300 - 20),
+                 pt2=(200 + 0, 300 + 0),
+                 color=(255, 0, 0),
+                 thickness=1)
+
+        cv2.line(self.debug_img_bg,
+                 pt1=(200 + 20, 300 - 20),
+                 pt2=(200 + 0, 300 + 0),
+                 color=(255, 0, 0),
+                 thickness=1)
+
+        cv2.line(self.debug_img_bg,
+                 pt1=(200 - 20, 300 - 20),
+                 pt2=(200 + 0, 300 + 0),
+                 color=(255, 0, 0),
+                 thickness=1)
+
+    def debug_ground_lines(self, checkpoint=False):
+        colors = ((255, 255, 255), (0, 255, 255), (0, 0, 255))
+        self.init_debug_bg_img()
+        image = self.debug_img_bg.copy()
+        h, w = self.img_shape[:2]
+        lines_cv = self.checkpoint_lines_cv if checkpoint else self.current_lines_cv
+        ground_color_coordinates = self.checkpoint_ground_color_coordinates if checkpoint else self.current_ground_color_coordinates
+        for i, line_cv in enumerate(lines_cv):
+            if None not in line_cv:
+                vx, vy, x, y = line_cv
+                bottomy = h
+                bottomx = int((bottomy - y) * vx / vy + x)
+                topy = int(min(ground_color_coordinates[i][:, 1]))
+                topx = int((topy - y) * vx / vy + x)
+                cv2.line(image, (bottomx, bottomy), (topx, topy), colors[i], thickness=1)
+        return image
 
     @staticmethod
     def _to_segment_msg(lines, normals, color):
