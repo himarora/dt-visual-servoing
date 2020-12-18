@@ -1,0 +1,1 @@
+Run `docker exec -it $(docker ps -aqf "name=^agent$") /code/exercise_ws/src/checkpoint.sh` to save the current image as a checkpoint.
