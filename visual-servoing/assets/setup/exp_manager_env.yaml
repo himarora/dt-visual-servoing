@@ -17,4 +17,4 @@ experiment_manager_parameters: |
   port: 8090
   scenarios:
   - /scenarios
-MAP_NAME: loop_empty
+MAP_NAME: udem1

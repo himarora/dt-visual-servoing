@@ -96,12 +96,16 @@ class GroundProjectionNode(DTROS):
             ground_pixel_list = []
             for pixel in pixel_list.pixels:
                 ground_pixel = Pixel()
-                ground_pixel.u, ground_pixel.v = self.pixel_msg_to_ground_msg(pixel)
+                ground_point = self.pixel_msg_to_ground_msg(pixel)
+                ground_pixel.x, ground_pixel.y = ground_point.x, ground_point.y
+                # print(f"{(pixel.x, pixel.y)} projected to {(ground_pixel.x, ground_pixel.y)}")
                 ground_pixel_list.append(ground_pixel)
-            ground_pixel_list_list.append(ground_pixel_list)
+            pixel_list_msg = PixelList()
+            pixel_list_msg.pixels = ground_pixel_list
+            ground_pixel_list_list.append(pixel_list_msg)
         msg = PixelListList()
-        msg.pixel_list = ground_pixel_list_list
-        self.pub_groundpixels(msg)
+        msg.pixel_lists = ground_pixel_list_list
+        self.pub_groundpixels.publish(msg)
 
     def pixel_msg_to_ground_msg(self, point_msg):
         """

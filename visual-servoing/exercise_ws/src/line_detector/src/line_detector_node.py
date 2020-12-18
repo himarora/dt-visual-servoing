@@ -66,7 +66,7 @@ class LineDetectorNode(DTROS):
 
         # The thresholds to be used for AntiInstagram color correction
         self.ai_thresholds_received = False
-        self.anti_instagram_thresholds=dict()
+        self.anti_instagram_thresholds = dict()
         self.ai = AntiInstagram()
 
         # This holds the colormaps for the debug/ranges images after they are computed once
@@ -132,14 +132,13 @@ class LineDetectorNode(DTROS):
         )
 
         self.sub_color_coordinates_ground = rospy.Subscriber(
-            "/agent/ground_projection_node",
+            "/agent/ground_projection_node/color_coordinates_ground",
             PixelListList,
             self.color_coordinates_ground_cb,
             queue_size=1
         )
 
         self.lines = {c: [None] * 3 for c in ["WHITE", "YELLOW", "RED"]}
-
 
     def thresholds_cb(self, thresh_msg):
         self.anti_instagram_thresholds["lower"] = thresh_msg.low
@@ -152,7 +151,6 @@ class LineDetectorNode(DTROS):
         except ValueError as e:
             self.logerr('Could not decode image: %s' % e)
             return
-
 
         # Perform color correction
         if self.ai_thresholds_received:
@@ -194,7 +192,7 @@ class LineDetectorNode(DTROS):
         pixel_msgs = []
         for pixel in pixels:
             pixel_msg = Pixel()
-            pixel_msg.u, pixel_msg.v = pixel
+            pixel_msg.x, pixel_msg.y = pixel
             pixel_msgs.append(pixel_msg)
         pixel_list = PixelList()
         pixel_list.pixels = pixel_msgs
@@ -205,17 +203,45 @@ class LineDetectorNode(DTROS):
         pixel_list = pixel_list_msg.pixels
         pixels = []
         for pixel in pixel_list:
-            pixels.append([pixel.u, pixel.v])
-        return np.array(pixels, np.uint8)
+            pixels.append([pixel.x, pixel.y])
+        return np.array(pixels, np.float32)
+
+    @staticmethod
+    def compute_homography(lines1, lines2):
+        a_white_0, b_white_0, c_white_0 = lines1[0]
+        a_red_0, b_red_0, c_red_0 = lines1[1]
+        a_yellow_0, b_yellow_0, c_yellow_0 = lines1[2]
+        a_white_1, b_white_1, c_white_1 = lines2[0]
+        a_red_1, b_red_1, c_red_1 = lines2[1]
+        a_yellow_1, b_yellow_1, c_yellow_1 = lines2[2]
+        lines = np.array(
+            [[a_white_0, b_white_0, c_white_0],
+             [a_red_0, b_red_0, c_red_0],
+             [a_yellow_0, b_yellow_0, c_yellow_0]]
+        ).astype(float)
+        b = np.array([a_white_1, a_red_1, a_yellow_1, b_white_1, b_red_1, b_yellow_1, c_white_1, c_red_1, c_yellow_1]).astype(float)
+        A = np.zeros((9, 9), dtype=float)
+        A[:3, :3] = A[3:6, 3:6] = A[6:, 6:] = lines
+        H_prime = np.linalg.inv(A) @ b
+        H_prime = H_prime.reshape(-1) / H_prime[8]
+        H_prime = np.array(
+            [[H_prime[0], H_prime[1], H_prime[2]],
+             [H_prime[3], H_prime[4], H_prime[5]],
+             [H_prime[6], H_prime[7], H_prime[8]]
+             ])
+        H = np.linalg.inv(H_prime).T
+        return H
 
     def color_coordinates_ground_cb(self, color_coordinates_msg):
-        pixel_lists = color_coordinates_msg.pixel_list
+        pixel_lists = color_coordinates_msg.pixel_lists
         pixel_list_list = []
+        lines = {c: [None] * 3 for c in ["WHITE", "YELLOW", "RED"]}
         for pixel_l in pixel_lists:
             pixels = self.pixel_list_msg_to_pixels(pixel_l)
             pixel_list_list.append(pixels)
-            [vx, vy, x, y] = cv2.fitLine(pixels, cv2.DIST_HUBER, 0, 0.01, 0.01)
-            color_line = self.get_abc(x, y, vx, vy)
+            if len(pixels) >= 2:
+                [vx, vy, x, y] = cv2.fitLine(pixels, cv2.DIST_HUBER, 0, 0.01, 0.01)
+                color_line = self.get_abc(x, y, vx, vy)
             print(color_line)
 
     def publish_color_coordinates(self, image):
@@ -237,7 +263,7 @@ class LineDetectorNode(DTROS):
                     im_color += cv2.inRange(im_hsv, color_range[color][i]["MIN"], color_range[color][i]["MAX"])
             else:
                 im_color += cv2.inRange(im_hsv, color_range[color]["MIN"], color_range[color]["MAX"])
-            color_coordinates = self.get_color_coordinates(im_color, im_edge)   # n x 2
+            color_coordinates = self.get_color_coordinates(im_color, im_edge)  # n x 2
             coordinates_list_msg = self.pixels_to_pixel_list_msg(color_coordinates)
             pixel_list_msgs.append(coordinates_list_msg)
             try:
@@ -251,7 +277,7 @@ class LineDetectorNode(DTROS):
         msg.pixel_lists = pixel_list_msgs
         self.pub_color_coordinates.publish(msg)
         self.lines = lines
-        self.log(lines)
+        # self.log(lines)
 
     def image_cb(self, image_msg):
         """
@@ -310,8 +336,6 @@ class LineDetectorNode(DTROS):
 
         # Publish the message
         self.pub_lines.publish(segment_list)
-
-
 
         # If there are any subscribers to the debug topics, generate a debug image and publish it
         if self.pub_d_segments.get_num_connections() > 0:
@@ -406,18 +430,19 @@ class LineDetectorNode(DTROS):
         # Make a color map, for the missing channel, just take the middle of the range
         if channels not in self.colormaps:
             colormap_1, colormap_0 = np.meshgrid(x_bins[:-1], y_bins[:-1])
-            colormap_2 = np.ones_like(colormap_0) * (axis_to_range[channel_to_axis[missing_channel]]/2)
+            colormap_2 = np.ones_like(colormap_0) * (axis_to_range[channel_to_axis[missing_channel]] / 2)
 
             channel_to_map = {channels[0]: colormap_0,
                               channels[1]: colormap_1,
                               missing_channel: colormap_2}
 
-            self.colormaps[channels] = np.stack([channel_to_map['H'], channel_to_map['S'], channel_to_map['V']], axis=-1).astype(np.uint8)
+            self.colormaps[channels] = np.stack([channel_to_map['H'], channel_to_map['S'], channel_to_map['V']],
+                                                axis=-1).astype(np.uint8)
             self.colormaps[channels] = cv2.cvtColor(self.colormaps[channels], cv2.COLOR_HSV2BGR)
 
         # resulting histogram image as a blend of the two images
         im = cv2.cvtColor(h[:, :, None], cv2.COLOR_GRAY2BGR)
-        im = cv2.addWeighted(im, 0.5 , self.colormaps[channels], 1 - 0.5, 0.0)
+        im = cv2.addWeighted(im, 0.5, self.colormaps[channels], 1 - 0.5, 0.0)
 
         # now plot the color ranges on top
         for _, color_range in self.color_ranges.items():
@@ -428,8 +453,10 @@ class LineDetectorNode(DTROS):
             for i in range(len(color_range.low)):
                 cv2.rectangle(
                     im,
-                    pt1=((color_range.high[i, channel_idx[1]]/2).astype(np.uint8), (color_range.high[i, channel_idx[0]]/2).astype(np.uint8)),
-                    pt2=((color_range.low[i, channel_idx[1]]/2).astype(np.uint8), (color_range.low[i, channel_idx[0]]/2).astype(np.uint8)),
+                    pt1=((color_range.high[i, channel_idx[1]] / 2).astype(np.uint8),
+                         (color_range.high[i, channel_idx[0]] / 2).astype(np.uint8)),
+                    pt2=((color_range.low[i, channel_idx[1]] / 2).astype(np.uint8),
+                         (color_range.low[i, channel_idx[0]] / 2).astype(np.uint8)),
                     color=color,
                     lineType=cv2.LINE_4
                 )
