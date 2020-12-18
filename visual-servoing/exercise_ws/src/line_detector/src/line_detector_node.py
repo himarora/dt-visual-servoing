@@ -5,7 +5,8 @@ import cv2
 import rospy
 from cv_bridge import CvBridge
 from sensor_msgs.msg import CompressedImage, Image
-from duckietown_msgs.msg import Segment, SegmentList, AntiInstagramThresholds
+from duckietown_msgs.msg import Segment, SegmentList, AntiInstagramThresholds, BoolStamped
+from std_msgs.msg import String
 from line_detector import LineDetector, ColorRange, plotSegments, plotMaps
 from image_processing.anti_instagram import AntiInstagram
 from custom_msgs.msg import Pixel, PixelList, PixelListList
@@ -138,6 +139,9 @@ class LineDetectorNode(DTROS):
             queue_size=1
         )
 
+        self.sub_key_press = rospy.Subscriber("/agent/line_detector_node/key_pressed", String, self.cb_key_pressed, queue_size=1)
+        self.checkpoint_image = None
+        self.current_image = None
         self.lines = {c: [None] * 3 for c in ["WHITE", "YELLOW", "RED"]}
 
     def thresholds_cb(self, thresh_msg):
@@ -167,6 +171,9 @@ class LineDetectorNode(DTROS):
             image = cv2.resize(image, img_size, interpolation=cv2.INTER_NEAREST)
         image = image[self._top_cutoff:, :, :]
         return image
+
+    def cb_key_pressed(self, msg):
+        print("key pressed")
 
     @staticmethod
     def get_color_coordinates(color_mask, im_edge, dist_thres=75):
