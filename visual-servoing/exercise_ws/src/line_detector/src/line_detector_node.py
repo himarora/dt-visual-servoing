@@ -116,6 +116,16 @@ class LineDetectorNode(DTROS):
             dt_topic_type=TopicType.PERCEPTION
         )
 
+        self.pub_color_coordinates_checkpoint = rospy.Publisher(
+            "~color_coordinates_checkpoint", PixelListList, queue_size=1,
+            dt_topic_type=TopicType.PERCEPTION
+        )
+
+        self.pub_d_checkpoint_image = rospy.Publisher(
+            "/agent/line_detector_node/debug/checkpoint_image", Image, queue_size=1,
+            dt_topic_type=TopicType.DEBUG
+        )
+
         # Subscribers
         self.sub_image = rospy.Subscriber(
             "~image/compressed",
@@ -138,11 +148,19 @@ class LineDetectorNode(DTROS):
             self.color_coordinates_ground_cb,
             queue_size=1
         )
+        self.sub_color_coordinates_checkpoint_ground = rospy.Subscriber(
+            "/agent/ground_projection_node/color_coordinates_ground_checkpoint",
+            PixelListList,
+            self.color_coordinates_checkpoint_ground_cb,
+            queue_size=1
+        )
 
         self.sub_key_press = rospy.Subscriber("/agent/line_detector_node/key_pressed", String, self.cb_key_pressed, queue_size=1)
         self.checkpoint_image = None
         self.current_image = None
-        self.lines = {c: [None] * 3 for c in ["WHITE", "YELLOW", "RED"]}
+        self.current_lines = [[None] * 3, [None] * 3, [None] * 3]   # WYR
+        self.checkpoint_lines = [[None] * 3, [None] * 3, [None] * 3]    # WYR
+        self.H = None
 
     def thresholds_cb(self, thresh_msg):
         self.anti_instagram_thresholds["lower"] = thresh_msg.low
@@ -173,7 +191,14 @@ class LineDetectorNode(DTROS):
         return image
 
     def cb_key_pressed(self, msg):
-        print("key pressed")
+        """
+        Saves checkpoint image and calls the method to extract color coordinates
+        :param msg: Dummy message
+        :return: None
+        """
+        print("Saved checkpoint")
+        self.checkpoint_image = self.current_image
+        self.publish_color_coordinates(self.checkpoint_image, checkpoint=True)
 
     @staticmethod
     def get_color_coordinates(color_mask, im_edge, dist_thres=75):
@@ -239,19 +264,48 @@ class LineDetectorNode(DTROS):
         H = np.linalg.inv(H_prime).T
         return H
 
-    def color_coordinates_ground_cb(self, color_coordinates_msg):
+    def set_lines_from_ground_coordinates(self, color_coordinates_msg, checkpoint=False):
+        """
+        Computes equation of lines from ground projected coordinates and computes the homography
+        :param color_coordinates_msg:
+        :param checkpoint:
+        :return:
+        """
         pixel_lists = color_coordinates_msg.pixel_lists
         pixel_list_list = []
-        lines = {c: [None] * 3 for c in ["WHITE", "YELLOW", "RED"]}
-        for pixel_l in pixel_lists:
+        lines = [[None] * 3, [None] * 3, [None] * 3]   # WYR
+        for i, pixel_l in enumerate(pixel_lists):
             pixels = self.pixel_list_msg_to_pixels(pixel_l)
             pixel_list_list.append(pixels)
             if len(pixels) >= 2:
                 [vx, vy, x, y] = cv2.fitLine(pixels, cv2.DIST_HUBER, 0, 0.01, 0.01)
                 color_line = self.get_abc(x, y, vx, vy)
-            print(color_line)
+                lines[i] = color_line
+        # Set line equations to corresponding values depending on whether they are for checkpoint or not
+        if checkpoint:
+            self.checkpoint_lines = lines
+        else:
+            self.current_lines = lines
 
-    def publish_color_coordinates(self, image):
+        self.log(f"CUR: {self.current_lines}, CKP: {self.checkpoint_lines}")
+        # If the current image or the checkpoint image changes, compute the homography
+        # Needs to have all three lines
+        # self.H = self.compute_homography(self.current_lines, self.checkpoint_lines)
+        # print(self.H)
+
+    def color_coordinates_ground_cb(self, color_coordinates_msg):
+        self.set_lines_from_ground_coordinates(color_coordinates_msg, checkpoint=False)
+
+    def color_coordinates_checkpoint_ground_cb(self, color_coordinates_msg):
+        self.set_lines_from_ground_coordinates(color_coordinates_msg, checkpoint=True)
+
+    def publish_color_coordinates(self, image, checkpoint=False):
+        """
+        Publishes color coordinate values given current image or checkpoint image. Subscribed by Ground Projection Node.
+        :param image: Current image or Checkpoint image
+        :param checkpoint: Whether image is the current image or a checkpoint image
+        :return: None
+        """
         color_range = {
             "WHITE": {"MIN": np.array([0, 0, 70], np.uint8), "MAX": np.array([180, 60, 255], np.uint8)},
             "YELLOW": {"MIN": np.array([23, 30, 60], np.uint8), "MAX": np.array([34, 255, 255], np.uint8)},
@@ -261,7 +315,6 @@ class LineDetectorNode(DTROS):
         }
         im_edge = self.detector.canny_edges
         im_hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        lines = {c: [None] * 3 for c in ["WHITE", "YELLOW", "RED"]}
         pixel_list_msgs = []
         for color in ["WHITE", "YELLOW", "RED"]:
             im_color = 0.
@@ -273,18 +326,10 @@ class LineDetectorNode(DTROS):
             color_coordinates = self.get_color_coordinates(im_color, im_edge)  # n x 2
             coordinates_list_msg = self.pixels_to_pixel_list_msg(color_coordinates)
             pixel_list_msgs.append(coordinates_list_msg)
-            try:
-                [vx, vy, x, y] = cv2.fitLine(color_coordinates, cv2.DIST_HUBER, 0, 0.01, 0.01)
-                color_line = self.get_abc(x, y, vx, vy)
-                lines[color] = color_line
-            # If no line is found
-            except:
-                pass
         msg = PixelListList()
         msg.pixel_lists = pixel_list_msgs
-        self.pub_color_coordinates.publish(msg)
-        self.lines = lines
-        # self.log(lines)
+        publisher = self.pub_color_coordinates_checkpoint if checkpoint else self.pub_color_coordinates
+        publisher.publish(msg)
 
     def image_cb(self, image_msg):
         """
@@ -364,6 +409,14 @@ class LineDetectorNode(DTROS):
             debug_image_msg.header = image_msg.header
             self.pub_d_maps.publish(debug_image_msg)
 
+        if self.pub_d_checkpoint_image.get_num_connections() > 0:
+            if self.checkpoint_image is not None:
+                debug_image_msg = self.bridge.cv2_to_imgmsg(self.checkpoint_image)
+                debug_image_msg.header = image_msg.header
+                self.pub_d_checkpoint_image.publish(debug_image_msg)
+                print("Published checkpoint image")
+
+
         for channels in ['HS', 'SV', 'HV']:
             publisher = getattr(self, 'pub_d_ranges_%s' % channels)
             if publisher.get_num_connections() > 0:
@@ -372,7 +425,8 @@ class LineDetectorNode(DTROS):
                 debug_image_msg.header = image_msg.header
                 publisher.publish(debug_image_msg)
 
-        self.publish_color_coordinates(image)
+        self.current_image = image
+        self.publish_color_coordinates(image, checkpoint=False)
 
     @staticmethod
     def _to_segment_msg(lines, normals, color):

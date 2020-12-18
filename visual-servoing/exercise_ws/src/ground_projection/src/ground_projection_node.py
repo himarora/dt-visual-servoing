@@ -54,13 +54,19 @@ class GroundProjectionNode(DTROS):
         self.sub_camera_info = rospy.Subscriber("~camera_info", CameraInfo, self.cb_camera_info, queue_size=1)
         self.sub_lineseglist_ = rospy.Subscriber("~lineseglist_in", SegmentList, self.lineseglist_cb, queue_size=1)
         self.sub_color_coordinates = rospy.Subscriber("/agent/line_detector_node/color_coordinates", PixelListList,
-                                                      self.colorcordinates_cb, queue_size=1)
+                                                      self.colorcoordinates_cb, queue_size=1)
+        self.sub_color_coordinates_checkpoint = rospy.Subscriber(
+            "/agent/line_detector_node/color_coordinates_checkpoint", PixelListList,
+            self.colorcoordinates_checkpoint_cb, queue_size=1)
 
         # publishers
         self.pub_lineseglist = rospy.Publisher("~lineseglist_out",
                                                SegmentList, queue_size=1, dt_topic_type=TopicType.PERCEPTION)
         self.pub_groundpixels = rospy.Publisher("~color_coordinates_ground",
-                                               PixelListList, queue_size=1, dt_topic_type=TopicType.PERCEPTION)
+                                                PixelListList, queue_size=1, dt_topic_type=TopicType.PERCEPTION)
+        self.pub_groundpixels_checkpoint = rospy.Publisher("~color_coordinates_ground_checkpoint",
+                                                           PixelListList, queue_size=1,
+                                                           dt_topic_type=TopicType.PERCEPTION)
         self.pub_debug_img = rospy.Publisher("~debug/ground_projection_image/compressed",
                                              CompressedImage, queue_size=1, dt_topic_type=TopicType.DEBUG)
 
@@ -89,7 +95,15 @@ class GroundProjectionNode(DTROS):
                                                              homography=np.array(self.homography).reshape((3, 3)))
         self.camera_info_received = True
 
-    def colorcordinates_cb(self, pixel_list_list_msg):
+    def colorcoordinates_cb(self, pixel_list_list_msg):
+        msg = self.get_ground_projected_msg(pixel_list_list_msg)
+        self.pub_groundpixels.publish(msg)
+
+    def colorcoordinates_checkpoint_cb(self, pixel_list_list_msg):
+        msg = self.get_ground_projected_msg(pixel_list_list_msg)
+        self.pub_groundpixels_checkpoint.publish(msg)
+
+    def get_ground_projected_msg(self, pixel_list_list_msg):
         pixel_list_list = pixel_list_list_msg.pixel_lists
         ground_pixel_list_list = []
         for pixel_list in pixel_list_list:
@@ -98,14 +112,13 @@ class GroundProjectionNode(DTROS):
                 ground_pixel = Pixel()
                 ground_point = self.pixel_msg_to_ground_msg(pixel)
                 ground_pixel.x, ground_pixel.y = ground_point.x, ground_point.y
-                # print(f"{(pixel.x, pixel.y)} projected to {(ground_pixel.x, ground_pixel.y)}")
                 ground_pixel_list.append(ground_pixel)
             pixel_list_msg = PixelList()
             pixel_list_msg.pixels = ground_pixel_list
             ground_pixel_list_list.append(pixel_list_msg)
         msg = PixelListList()
         msg.pixel_lists = ground_pixel_list_list
-        self.pub_groundpixels.publish(msg)
+        return msg
 
     def pixel_msg_to_ground_msg(self, point_msg):
         """
