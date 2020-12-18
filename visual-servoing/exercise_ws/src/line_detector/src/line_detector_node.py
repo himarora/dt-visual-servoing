@@ -201,18 +201,6 @@ class LineDetectorNode(DTROS):
         self.publish_color_coordinates(self.checkpoint_image, checkpoint=True)
 
     @staticmethod
-    def get_color_coordinates(color_mask, im_edge, dist_thres=75):
-        i_coords, j_coords = np.meshgrid(range(color_mask.shape[0]),
-                                         range(color_mask.shape[1]),
-                                         indexing='ij')
-        dist = np.sqrt(i_coords ** 2 + j_coords ** 2)
-        dist_mask = np.logical_and(dist > dist_thres,
-                                   i_coords > 10)
-        ii = np.where(np.logical_and(np.logical_and(color_mask, im_edge),
-                                     dist_mask))
-        return np.array([ii[1], ii[0]]).T
-
-    @staticmethod
     def get_abc(x, y, vx, vy):
         a = 1 / ((vx / vy) * y - x)
         b = - vx / (vy * (vx / vy * y - x))
@@ -231,11 +219,13 @@ class LineDetectorNode(DTROS):
         return pixel_list
 
     @staticmethod
-    def pixel_list_msg_to_pixels(pixel_list_msg):
+    def pixel_list_msg_to_pixels(pixel_list_msg, dist_thres=5.):
         pixel_list = pixel_list_msg.pixels
         pixels = []
         for pixel in pixel_list:
-            pixels.append([pixel.x, pixel.y])
+            point = [pixel.x, pixel.y]
+            if np.sqrt(point[0] ** 2 + point[1] ** 2) < dist_thres:
+                pixels.append([point[0], point[1]])
         return np.array(pixels, np.float32)
 
     @staticmethod
@@ -275,7 +265,7 @@ class LineDetectorNode(DTROS):
         pixel_list_list = []
         lines = [[None] * 3, [None] * 3, [None] * 3]   # WYR
         for i, pixel_l in enumerate(pixel_lists):
-            pixels = self.pixel_list_msg_to_pixels(pixel_l)
+            pixels = self.pixel_list_msg_to_pixels(pixel_l, dist_thres=5.)
             pixel_list_list.append(pixels)
             if len(pixels) >= 2:
                 [vx, vy, x, y] = cv2.fitLine(pixels, cv2.DIST_HUBER, 0, 0.01, 0.01)
@@ -323,7 +313,9 @@ class LineDetectorNode(DTROS):
                     im_color += cv2.inRange(im_hsv, color_range[color][i]["MIN"], color_range[color][i]["MAX"])
             else:
                 im_color += cv2.inRange(im_hsv, color_range[color]["MIN"], color_range[color]["MAX"])
-            color_coordinates = self.get_color_coordinates(im_color, im_edge)  # n x 2
+            ii = np.where(np.logical_and(im_color, im_edge))
+            color_coordinates = np.array([ii[1], ii[0]]).T
+            # color_coordinates = self.get_color_coordinates(im_color, im_edge)  # n x 2
             coordinates_list_msg = self.pixels_to_pixel_list_msg(color_coordinates)
             pixel_list_msgs.append(coordinates_list_msg)
         msg = PixelListList()
