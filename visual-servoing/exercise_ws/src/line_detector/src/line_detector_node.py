@@ -577,16 +577,13 @@ class LineDetectorNode(DTROS):
                 # bottomx = int((bottomy - y) * vx / vy + x)
                 bottomx = 0
                 bottomy = (bottomx - x) * vy / vx + y
-                # topy = int(min(ground_color_coordinates[i][:, 1]))
-                # topx = int((topy - y) * vx / vy + x)
-                topx = h
+                topx = 0.7
                 topy = (topx - x) * vy / vx + y
-                # print(vx, vy, bottomx, bottomy)
 
-                bottomx = int(bottomx * -400 + 200)
-                topx = int(topx * -400 + 200)
-                bottomy = int(bottomy * -400 + 300)
-                topy = int(topy * -400 + 300)
+                bottomx = int(bottomx * -400 + 300)
+                topx = int(topx * -400 + 300)
+                bottomy = int(bottomy * -400 + 200)
+                topy = int(topy * -400 + 200)
                 # print(vx, bottomx, bottomy, topx, topy)
                 cv2.line(image, (bottomx, bottomy), (topx, topy), colors[i], thickness=1)
         return image
