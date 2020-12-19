@@ -98,6 +98,22 @@ class LineDetectorNode(DTROS):
             "~debug/maps/compressed", CompressedImage, queue_size=1,
             dt_topic_type=TopicType.DEBUG
         )
+
+        self.pub_d_color_coordinates_img = rospy.Publisher(
+            "~debug/color_coordinates/compressed", CompressedImage, queue_size=1,
+            dt_topic_type=TopicType.DEBUG
+        )
+
+        self.pub_d_color_coordinates_ground_img = rospy.Publisher(
+            "~debug/color_coordinates_ground/compressed", CompressedImage, queue_size=1,
+            dt_topic_type=TopicType.DEBUG
+        )
+
+        self.pub_d_checkpoint_image = rospy.Publisher(
+            "/agent/line_detector_node/debug/checkpoint/compressed", CompressedImage, queue_size=1,
+            dt_topic_type=TopicType.DEBUG
+        )
+
         # these are not compressed because compression adds undesired blur
         self.pub_d_ranges_HS = rospy.Publisher(
             "~debug/ranges_HS", Image, queue_size=1,
@@ -121,18 +137,13 @@ class LineDetectorNode(DTROS):
             dt_topic_type=TopicType.PERCEPTION
         )
 
-        self.pub_d_checkpoint_image = rospy.Publisher(
-            "/agent/line_detector_node/debug/checkpoint_image", Image, queue_size=1,
-            dt_topic_type=TopicType.DEBUG
-        )
-
         self.pub_d_vs_lines = rospy.Publisher(
-            "/agent/line_detector_node/debug/vs_lines", Image, queue_size=1,
+            "/agent/line_detector_node/debug/vs_lines/compressed", CompressedImage, queue_size=1,
             dt_topic_type=TopicType.DEBUG
         )
 
         self.pub_d_vs_lines_checkpoint = rospy.Publisher(
-            "/agent/line_detector_node/debug/vs_lines_checkpoint", Image, queue_size=1,
+            "/agent/line_detector_node/debug/vs_lines_checkpoint/compressed", CompressedImage, queue_size=1,
             dt_topic_type=TopicType.DEBUG
         )
 
@@ -178,6 +189,14 @@ class LineDetectorNode(DTROS):
         self.img_shape = None
         self.H = None
         self.debug_img_bg = None
+
+        self.arr_cutoff = np.array([
+            self._top_cutoff, self._top_cutoff
+        ])
+        self.arr_ratio = np.array([
+            1. / self._img_size[1],
+            1. / self._img_size[0]
+        ])
 
     def thresholds_cb(self, thresh_msg):
         self.anti_instagram_thresholds["lower"] = thresh_msg.low
@@ -247,12 +266,15 @@ class LineDetectorNode(DTROS):
 
     @staticmethod
     def compute_homography(lines1, lines2):
+        # print(lines1, lines2)
         a_white_0, b_white_0, c_white_0 = lines1[0]
-        a_red_0, b_red_0, c_red_0 = lines1[1]
-        a_yellow_0, b_yellow_0, c_yellow_0 = lines1[2]
+        # a_red_0, b_red_0, c_red_0 = lines1[1]
+        a_red_0, b_red_0, c_red_0 = 1., 1., 1.
+        a_yellow_0, b_yellow_0, c_yellow_0 = lines1[1]
         a_white_1, b_white_1, c_white_1 = lines2[0]
-        a_red_1, b_red_1, c_red_1 = lines2[1]
-        a_yellow_1, b_yellow_1, c_yellow_1 = lines2[2]
+        # a_red_1, b_red_1, c_red_1 = lines2[1]
+        a_red_1, b_red_1, c_red_1 = 1., 1., 1.
+        a_yellow_1, b_yellow_1, c_yellow_1 = lines2[1]
         lines = np.array(
             [[a_white_0, b_white_0, c_white_0],
              [a_red_0, b_red_0, c_red_0],
@@ -261,6 +283,7 @@ class LineDetectorNode(DTROS):
         b = np.array(
             [a_white_1, a_red_1, a_yellow_1, b_white_1, b_red_1, b_yellow_1, c_white_1, c_red_1, c_yellow_1]).astype(
             float)
+        # print(lines, b)
         A = np.zeros((9, 9), dtype=float)
         A[:3, :3] = A[3:6, 3:6] = A[6:, 6:] = lines
         H_prime = np.linalg.inv(A) @ b
@@ -285,7 +308,7 @@ class LineDetectorNode(DTROS):
         lines = [[None] * 3, [None] * 3, [None] * 3]  # WYR
         lines_cv = [[None] * 4, [None] * 4, [None] * 4]  # WYR
         for i, pixel_l in enumerate(pixel_lists):
-            pixels = self.pixel_list_msg_to_pixels(pixel_l, dist_thres=5.)
+            pixels = self.pixel_list_msg_to_pixels(pixel_l, dist_thres=1.5)
             pixel_list_list.append(pixels)
             if len(pixels) >= 2:
                 line_cv = [vx, vy, x, y] = cv2.fitLine(pixels, cv2.DIST_HUBER, 0, 0.01, 0.01)
@@ -304,13 +327,14 @@ class LineDetectorNode(DTROS):
 
         publisher = self.pub_d_vs_lines_checkpoint if checkpoint else self.pub_d_vs_lines
         if publisher.get_num_connections() > 0:
-            debug_image_msg = self.bridge.cv2_to_imgmsg(self.debug_ground_lines(checkpoint=checkpoint))
+            debug_image_msg = self.bridge.cv2_to_compressed_imgmsg(self.debug_ground_lines(checkpoint=checkpoint))
             # debug_image_msg.header = seglist_out.header
             publisher.publish(debug_image_msg)
-        self.log(f"CUR: {self.current_lines}, CKP: {self.checkpoint_lines}")
+        # self.log(f"CUR: {self.current_lines}, CKP: {self.checkpoint_lines}")
+        # self.log(f"CUR: {self.current_lines}, CKP: {self.checkpoint_lines}")
         # If the current image or the checkpoint image changes, compute the homography
         # Needs to have all three lines
-        # self.H = self.compute_homography(self.current_lines, self.checkpoint_lines)
+        self.H = self.compute_homography(self.current_lines, self.checkpoint_lines)
         # print(self.H)
 
     def color_coordinates_ground_cb(self, color_coordinates_msg):
@@ -327,15 +351,16 @@ class LineDetectorNode(DTROS):
         :return: None
         """
         color_range = {
-            "WHITE": {"MIN": np.array([0, 0, 70], np.uint8), "MAX": np.array([180, 60, 255], np.uint8)},
-            "YELLOW": {"MIN": np.array([23, 30, 60], np.uint8), "MAX": np.array([34, 255, 255], np.uint8)},
-            "RED": ({"MIN": np.array([0, 30, 60], np.uint8), "MAX": np.array([12, 255, 255], np.uint8)}, {
-                "MIN": np.array([170, 30, 60], np.uint8), "MAX": np.array([180, 255, 255], np.uint8)
+            "WHITE": {"MIN": np.array([0, 0, 100], np.uint8), "MAX": np.array([180, 100, 255], np.uint8)},
+            "YELLOW": {"MIN": np.array([25, 140, 50], np.uint8), "MAX": np.array([35, 255, 255], np.uint8)},
+            "RED": ({"MIN": np.array([0, 140, 100], np.uint8), "MAX": np.array([15, 255, 255], np.uint8)}, {
+                "MIN": np.array([165, 140, 100], np.uint8), "MAX": np.array([180, 255, 255], np.uint8)
             })
         }
         im_edge = self.detector.canny_edges
         im_hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         pixel_list_msgs = []
+        all_coordinates = []
         for color in ["WHITE", "YELLOW", "RED"]:
             im_color = 0.
             if color == "RED":
@@ -345,13 +370,41 @@ class LineDetectorNode(DTROS):
                 im_color += cv2.inRange(im_hsv, color_range[color]["MIN"], color_range[color]["MAX"])
             ii = np.where(np.logical_and(im_color, im_edge))
             color_coordinates = np.array([ii[1], ii[0]]).T
+            normalized_color_coordinates = (color_coordinates + self.arr_cutoff) * self.arr_ratio
             # color_coordinates = self.get_color_coordinates(im_color, im_edge)  # n x 2
-            coordinates_list_msg = self.pixels_to_pixel_list_msg(color_coordinates)
+            coordinates_list_msg = self.pixels_to_pixel_list_msg(normalized_color_coordinates)
             pixel_list_msgs.append(coordinates_list_msg)
+            all_coordinates.append(color_coordinates)
         msg = PixelListList()
         msg.pixel_lists = pixel_list_msgs
         publisher = self.pub_color_coordinates_checkpoint if checkpoint else self.pub_color_coordinates
         publisher.publish(msg)
+        colors = ((255, 255, 255), (0, 255, 255), (0, 0, 255))
+        if not checkpoint and self.pub_d_color_coordinates_img.get_num_connections() > 0:
+            debug_image = image.copy() * 0.2
+            h, w = image.shape[:2]
+            dist_thres = 75
+            cv2.circle(debug_image, (80, 80), radius=5, color=(255, 105, 180), thickness=5)
+            for i, color_coordinates in enumerate(all_coordinates):
+                filtered_coordinates = []
+                for point in color_coordinates:
+                    if np.sqrt((point[0] - 80) ** 2 + (point[1] - 80) ** 2) < dist_thres:
+                        filtered_coordinates.append(point)
+                        cv2.circle(debug_image, (point[0], point[1]), radius=0, color=colors[i], thickness=-1)
+                if len(filtered_coordinates) > 10:
+                    filtered_coordinates = np.array(filtered_coordinates)
+                    # if i == 1:
+                    #     print(f"Stats of yellow coordinates in image space: {filtered_coordinates.mean(axis=0), filtered_coordinates.std(axis=0)}")
+                    [vx, vy, x, y] = cv2.fitLine(filtered_coordinates, cv2.DIST_HUBER, 0, 0.01, 0.01)
+                    bottomy = h
+                    bottomx = int((bottomy - y) * vx / vy + x)
+                    topy = int(min(filtered_coordinates[:, 1]))
+                    topx = int((topy - y) * vx / vy + x)
+                    cv2.line(debug_image, (bottomx, bottomy), (topx, topy), colors[i], thickness=2)
+
+            debug_image_msg = self.bridge.cv2_to_compressed_imgmsg(debug_image)
+            # debug_image_msg.header = image_msg.header
+            self.pub_d_color_coordinates_img.publish(debug_image_msg)
 
     def image_cb(self, image_msg):
         """
@@ -435,10 +488,9 @@ class LineDetectorNode(DTROS):
 
         if self.pub_d_checkpoint_image.get_num_connections() > 0:
             if self.checkpoint_image is not None:
-                debug_image_msg = self.bridge.cv2_to_imgmsg(self.checkpoint_image)
+                debug_image_msg = self.bridge.cv2_to_compressed_imgmsg(self.checkpoint_image)
                 debug_image_msg.header = image_msg.header
                 self.pub_d_checkpoint_image.publish(debug_image_msg)
-                print("Published checkpoint image")
 
         for channels in ['HS', 'SV', 'HV']:
             publisher = getattr(self, 'pub_d_ranges_%s' % channels)
@@ -509,13 +561,33 @@ class LineDetectorNode(DTROS):
         h, w = self.img_shape[:2]
         lines_cv = self.checkpoint_lines_cv if checkpoint else self.current_lines_cv
         ground_color_coordinates = self.checkpoint_ground_color_coordinates if checkpoint else self.current_ground_color_coordinates
-        for i, line_cv in enumerate(lines_cv):
+        for i, (line_cv, c_coord) in enumerate(zip(lines_cv, ground_color_coordinates)):
+            # c_coord *= 100
+            # if i == 1:
+            #     print(c_coord.mean(axis=0), c_coord.std(axis=0))
+            for point in c_coord:
+                x = int((point[1] * -400) + 200)
+                y = int((point[0] * -400) + 300)
+                cv2.circle(image, (x, y), radius=2, color=colors[i], thickness=2)
+            # if i == 1:
+            #     print(f"Point: {(x, y)}")
             if None not in line_cv:
                 vx, vy, x, y = line_cv
-                bottomy = h
-                bottomx = int((bottomy - y) * vx / vy + x)
-                topy = int(min(ground_color_coordinates[i][:, 1]))
-                topx = int((topy - y) * vx / vy + x)
+                # bottomy = h
+                # bottomx = int((bottomy - y) * vx / vy + x)
+                bottomx = 0
+                bottomy = (bottomx - x) * vy / vx + y
+                # topy = int(min(ground_color_coordinates[i][:, 1]))
+                # topx = int((topy - y) * vx / vy + x)
+                topx = h
+                topy = (topx - x) * vy / vx + y
+                # print(vx, vy, bottomx, bottomy)
+
+                bottomx = int(bottomx * -400 + 200)
+                topx = int(topx * -400 + 200)
+                bottomy = int(bottomy * -400 + 300)
+                topy = int(topy * -400 + 300)
+                print(vx, bottomx, bottomy, topx, topy)
                 cv2.line(image, (bottomx, bottomy), (topx, topy), colors[i], thickness=1)
         return image
 

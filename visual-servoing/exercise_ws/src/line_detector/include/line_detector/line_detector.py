@@ -65,6 +65,7 @@ class LineDetector:
         """
 
         self.bgr = np.copy(image)
+        self.bgr = cv2.GaussianBlur(self.bgr, (5, 5), 0)
         self.hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         self.canny_edges = self.findEdges()
 

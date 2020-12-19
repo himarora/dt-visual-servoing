@@ -16,7 +16,7 @@ from sensor_msgs.msg import CameraInfo, CompressedImage
 from geometry_msgs.msg import Point as PointMsg
 from duckietown_msgs.msg import Segment, SegmentList
 from custom_msgs.msg import Pixel, PixelList, PixelListList
-
+np.set_printoptions(precision=3, suppress=True)
 
 class GroundProjectionNode(DTROS):
     """
@@ -106,13 +106,21 @@ class GroundProjectionNode(DTROS):
     def get_ground_projected_msg(self, pixel_list_list_msg):
         pixel_list_list = pixel_list_list_msg.pixel_lists
         ground_pixel_list_list = []
-        for pixel_list in pixel_list_list:
+        for i, pixel_list in enumerate(pixel_list_list):
             ground_pixel_list = []
+            raw_image_pixels = []
+            raw_ground_pixels = []
             for pixel in pixel_list.pixels:
-                ground_pixel = Pixel()
                 ground_point = self.pixel_msg_to_ground_msg(pixel)
+                ground_pixel = Pixel()
                 ground_pixel.x, ground_pixel.y = ground_point.x, ground_point.y
                 ground_pixel_list.append(ground_pixel)
+                raw_image_pixels.append((pixel.x, pixel.y))
+                raw_ground_pixels.append((ground_pixel.x, ground_pixel.y))
+            raw_image_pixels = np.array(raw_image_pixels)
+            raw_ground_pixels = np.array(raw_ground_pixels)
+            print(
+                f"{i} Image Space: {raw_image_pixels.mean(axis=0), raw_image_pixels.std(axis=0)} Ground Space: {raw_ground_pixels.mean(axis=0), raw_ground_pixels.std(axis=0)}")
             pixel_list_msg = PixelList()
             pixel_list_msg.pixels = ground_pixel_list
             ground_pixel_list_list.append(pixel_list_msg)
