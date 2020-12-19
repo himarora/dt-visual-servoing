@@ -109,11 +109,6 @@ class LineDetectorNode(DTROS):
             dt_topic_type=TopicType.DEBUG
         )
 
-        self.pub_d_color_coordinates_ground_img = rospy.Publisher(
-            "~debug/color_coordinates_ground/compressed", CompressedImage, queue_size=1,
-            dt_topic_type=TopicType.DEBUG
-        )
-
         self.pub_d_checkpoint_image = rospy.Publisher(
             "/agent/line_detector_node/debug/checkpoint/compressed", CompressedImage, queue_size=1,
             dt_topic_type=TopicType.DEBUG
