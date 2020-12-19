@@ -9,6 +9,7 @@ find_package(catkin REQUIRED COMPONENTS
 
 add_message_files(
   FILES
+  FloatList.msg
   Pixel.msg
   PixelList.msg
   PixelListList.msg

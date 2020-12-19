@@ -9,7 +9,7 @@ from duckietown_msgs.msg import Segment, SegmentList, AntiInstagramThresholds, B
 from std_msgs.msg import String
 from line_detector import LineDetector, ColorRange, plotSegments, plotMaps
 from image_processing.anti_instagram import AntiInstagram
-from custom_msgs.msg import Pixel, PixelList, PixelListList
+from custom_msgs.msg import Pixel, PixelList, PixelListList, FloatList
 from duckietown.dtros import DTROS, NodeType, TopicType
 
 
@@ -104,6 +104,11 @@ class LineDetectorNode(DTROS):
             dt_topic_type=TopicType.DEBUG
         )
 
+        self.pub_d_color_coordinates_img_checkpoint = rospy.Publisher(
+            "~debug/color_coordinates_checkpoint/compressed", CompressedImage, queue_size=1,
+            dt_topic_type=TopicType.DEBUG
+        )
+
         self.pub_d_color_coordinates_ground_img = rospy.Publisher(
             "~debug/color_coordinates_ground/compressed", CompressedImage, queue_size=1,
             dt_topic_type=TopicType.DEBUG
@@ -145,6 +150,11 @@ class LineDetectorNode(DTROS):
         self.pub_d_vs_lines_checkpoint = rospy.Publisher(
             "/agent/line_detector_node/debug/vs_lines_checkpoint/compressed", CompressedImage, queue_size=1,
             dt_topic_type=TopicType.DEBUG
+        )
+
+        self.pub_homography = rospy.Publisher(
+            "/agent/line_detector_node/homography", FloatList, queue_size=1,
+            dt_topic_type=TopicType.PERCEPTION
         )
 
         # Subscribers
@@ -330,12 +340,13 @@ class LineDetectorNode(DTROS):
             debug_image_msg = self.bridge.cv2_to_compressed_imgmsg(self.debug_ground_lines(checkpoint=checkpoint))
             # debug_image_msg.header = seglist_out.header
             publisher.publish(debug_image_msg)
-        # self.log(f"CUR: {self.current_lines}, CKP: {self.checkpoint_lines}")
-        # self.log(f"CUR: {self.current_lines}, CKP: {self.checkpoint_lines}")
+        self.log(f"CUR: {self.current_lines}, CKP: {self.checkpoint_lines}")
         # If the current image or the checkpoint image changes, compute the homography
         # Needs to have all three lines
         self.H = self.compute_homography(self.current_lines, self.checkpoint_lines)
-        # print(self.H)
+        homography_msg = FloatList()
+        homography_msg.H = list(self.H.flatten())
+        self.pub_homography.publish(homography_msg)
 
     def color_coordinates_ground_cb(self, color_coordinates_msg):
         self.set_lines_from_ground_coordinates(color_coordinates_msg, checkpoint=False)
@@ -380,7 +391,8 @@ class LineDetectorNode(DTROS):
         publisher = self.pub_color_coordinates_checkpoint if checkpoint else self.pub_color_coordinates
         publisher.publish(msg)
         colors = ((255, 255, 255), (0, 255, 255), (0, 0, 255))
-        if not checkpoint and self.pub_d_color_coordinates_img.get_num_connections() > 0:
+        pub_d_img = self.pub_d_color_coordinates_img_checkpoint if checkpoint else self.pub_d_color_coordinates_img
+        if pub_d_img.get_num_connections() > 0:
             debug_image = image.copy() * 0.2
             h, w = image.shape[:2]
             dist_thres = 75
@@ -393,8 +405,6 @@ class LineDetectorNode(DTROS):
                         cv2.circle(debug_image, (point[0], point[1]), radius=0, color=colors[i], thickness=-1)
                 if len(filtered_coordinates) > 10:
                     filtered_coordinates = np.array(filtered_coordinates)
-                    # if i == 1:
-                    #     print(f"Stats of yellow coordinates in image space: {filtered_coordinates.mean(axis=0), filtered_coordinates.std(axis=0)}")
                     [vx, vy, x, y] = cv2.fitLine(filtered_coordinates, cv2.DIST_HUBER, 0, 0.01, 0.01)
                     bottomy = h
                     bottomx = int((bottomy - y) * vx / vy + x)
@@ -404,7 +414,7 @@ class LineDetectorNode(DTROS):
 
             debug_image_msg = self.bridge.cv2_to_compressed_imgmsg(debug_image)
             # debug_image_msg.header = image_msg.header
-            self.pub_d_color_coordinates_img.publish(debug_image_msg)
+            pub_d_img.publish(debug_image_msg)
 
     def image_cb(self, image_msg):
         """
@@ -562,15 +572,10 @@ class LineDetectorNode(DTROS):
         lines_cv = self.checkpoint_lines_cv if checkpoint else self.current_lines_cv
         ground_color_coordinates = self.checkpoint_ground_color_coordinates if checkpoint else self.current_ground_color_coordinates
         for i, (line_cv, c_coord) in enumerate(zip(lines_cv, ground_color_coordinates)):
-            # c_coord *= 100
-            # if i == 1:
-            #     print(c_coord.mean(axis=0), c_coord.std(axis=0))
             for point in c_coord:
                 x = int((point[1] * -400) + 200)
                 y = int((point[0] * -400) + 300)
                 cv2.circle(image, (x, y), radius=2, color=colors[i], thickness=2)
-            # if i == 1:
-            #     print(f"Point: {(x, y)}")
             if None not in line_cv:
                 vx, vy, x, y = line_cv
                 # bottomy = h
@@ -587,7 +592,7 @@ class LineDetectorNode(DTROS):
                 topx = int(topx * -400 + 200)
                 bottomy = int(bottomy * -400 + 300)
                 topy = int(topy * -400 + 300)
-                print(vx, bottomx, bottomy, topx, topy)
+                # print(vx, bottomx, bottomy, topx, topy)
                 cv2.line(image, (bottomx, bottomy), (topx, topy), colors[i], thickness=1)
         return image
 

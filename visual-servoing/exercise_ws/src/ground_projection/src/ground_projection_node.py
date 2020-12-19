@@ -119,8 +119,8 @@ class GroundProjectionNode(DTROS):
                 raw_ground_pixels.append((ground_pixel.x, ground_pixel.y))
             raw_image_pixels = np.array(raw_image_pixels)
             raw_ground_pixels = np.array(raw_ground_pixels)
-            print(
-                f"{i} Image Space: {raw_image_pixels.mean(axis=0), raw_image_pixels.std(axis=0)} Ground Space: {raw_ground_pixels.mean(axis=0), raw_ground_pixels.std(axis=0)}")
+            # print(
+            #     f"{i} Image Space: {raw_image_pixels.mean(axis=0), raw_image_pixels.std(axis=0)} Ground Space: {raw_ground_pixels.mean(axis=0), raw_ground_pixels.std(axis=0)}")
             pixel_list_msg = PixelList()
             pixel_list_msg.pixels = ground_pixel_list
             ground_pixel_list_list.append(pixel_list_msg)
