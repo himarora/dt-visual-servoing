@@ -585,7 +585,7 @@ class LineDetectorNode(DTROS):
                 bottomy = int(bottomy * -400 + 200)
                 topy = int(topy * -400 + 200)
                 # print(vx, bottomx, bottomy, topx, topy)
-                cv2.line(image, (bottomx, bottomy), (topx, topy), colors[i], thickness=1)
+                cv2.line(image, (bottomy, bottomx), (topy, topx), colors[i], thickness=1)
         return image
 
     @staticmethod
