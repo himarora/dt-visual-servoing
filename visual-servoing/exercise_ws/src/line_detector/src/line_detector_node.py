@@ -313,7 +313,7 @@ class LineDetectorNode(DTROS):
         lines = [[None] * 3, [None] * 3, [None] * 3]  # WYR
         lines_cv = [[None] * 4, [None] * 4, [None] * 4]  # WYR
         for i, pixel_l in enumerate(pixel_lists):
-            pixels = self.pixel_list_msg_to_pixels(pixel_l, dist_thres=1.5)
+            pixels = self.pixel_list_msg_to_pixels(pixel_l, dist_thres=0.5)
             pixel_list_list.append(pixels)
             if len(pixels) >= 2:
                 line_cv = [vx, vy, x, y] = cv2.fitLine(pixels, cv2.DIST_HUBER, 0, 0.01, 0.01)
@@ -564,7 +564,6 @@ class LineDetectorNode(DTROS):
         colors = ((255, 255, 255), (0, 255, 255), (0, 0, 255))
         self.init_debug_bg_img()
         image = self.debug_img_bg.copy()
-        h, w = self.img_shape[:2]
         lines_cv = self.checkpoint_lines_cv if checkpoint else self.current_lines_cv
         ground_color_coordinates = self.checkpoint_ground_color_coordinates if checkpoint else self.current_ground_color_coordinates
         for i, (line_cv, c_coord) in enumerate(zip(lines_cv, ground_color_coordinates)):
