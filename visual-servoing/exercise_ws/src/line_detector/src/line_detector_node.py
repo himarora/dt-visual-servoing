@@ -341,6 +341,7 @@ class LineDetectorNode(DTROS):
         self.H = self.compute_homography(self.current_lines, self.checkpoint_lines)
         homography_msg = FloatList()
         homography_msg.H = list(self.H.flatten())
+        print(self.H)
         self.pub_homography.publish(homography_msg)
 
     def color_coordinates_ground_cb(self, color_coordinates_msg):
