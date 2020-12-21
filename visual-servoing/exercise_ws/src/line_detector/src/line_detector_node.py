@@ -285,12 +285,12 @@ class LineDetectorNode(DTROS):
     def compute_homography(lines1, lines2):
         # print(lines1, lines2)
         a_white_0, b_white_0, c_white_0 = lines1[0]
-        # a_red_0, b_red_0, c_red_0 = lines1[1]
-        a_red_0, b_red_0, c_red_0 = 1., 1., 1.
+        a_red_0, b_red_0, c_red_0 = lines1[2]
+        # a_red_0, b_red_0, c_red_0 = 1., 1., 1.
         a_yellow_0, b_yellow_0, c_yellow_0 = lines1[1]
         a_white_1, b_white_1, c_white_1 = lines2[0]
-        # a_red_1, b_red_1, c_red_1 = lines2[1]
-        a_red_1, b_red_1, c_red_1 = 1., 1., 1.
+        a_red_1, b_red_1, c_red_1 = lines2[2]
+        # a_red_1, b_red_1, c_red_1 = 1., 1., 1.
         a_yellow_1, b_yellow_1, c_yellow_1 = lines2[1]
         lines = np.array(
             [[a_white_0, b_white_0, c_white_0],
