@@ -8,6 +8,7 @@ from sensor_msgs.msg import Image
 import os
 import numpy as np
 from cv_bridge import CvBridge
+from custom_msgs.msg import FloatList
 
 
 class LaneFilterNode(DTROS):
@@ -109,6 +110,9 @@ class LaneFilterNode(DTROS):
                                                     queue_size=1,
                                                     dt_topic_type=TopicType.DEBUG)
 
+        self.pub_vs_pose = rospy.Publisher("/agent/lane_filter_node/debug/vs_pose", FloatList, queue_size=1,
+                                           dt_topic_type=TopicType.DEBUG)
+
         self.right_encoder_ticks = 0
         self.left_encoder_ticks = 0
         self.right_encoder_ticks_delta = 0
@@ -201,7 +205,10 @@ class LaneFilterNode(DTROS):
 
     def publishPose(self):
         pose = self.filter.getPoseEst()
-        print(pose)
+        msg = FloatList()
+        msg.H = pose['pose mean']
+        self.pub_vs_pose.publish(msg)
+        print(f"Pose: {pose}")
 
     def debugOutput(self, segment_list_msg, d_max, phi_max):
         """Creates and publishes debug messages

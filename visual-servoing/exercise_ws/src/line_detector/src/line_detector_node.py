@@ -152,6 +152,11 @@ class LineDetectorNode(DTROS):
             dt_topic_type=TopicType.PERCEPTION
         )
 
+        self.pub_d_vs_pose_img = rospy.Publisher(
+            "/agent/line_detector_node/vs_target_pose/compressed", CompressedImage, queue_size=1,
+            dt_topic_type=TopicType.DEBUG
+        )
+
         # Subscribers
         self.sub_image = rospy.Subscriber(
             "~image/compressed",
@@ -178,6 +183,13 @@ class LineDetectorNode(DTROS):
             "/agent/ground_projection_node/color_coordinates_ground_checkpoint",
             PixelListList,
             self.color_coordinates_checkpoint_ground_cb,
+            queue_size=1
+        )
+
+        self.sub_d_vs_pose = rospy.Subscriber(
+            "/agent/lane_filter_node/debug/vs_pose",
+            FloatList,
+            self.vs_lane_pose_cb,
             queue_size=1
         )
 
@@ -300,6 +312,20 @@ class LineDetectorNode(DTROS):
              ])
         H = np.linalg.inv(H_prime).T
         return H
+
+    def vs_lane_pose_cb(self, msg):
+        theta, p1, p2 = msg.H
+        x = int((-p2 * -400) + 200)
+        y = int((-p1 * -400) + 300)
+        theta *= -1.
+        self.init_debug_bg_img()
+        image = self.debug_img_bg.copy()
+        arrow_len = 30
+        arrow_end = (int(x + arrow_len * np.sin(theta)), int((y + arrow_len * np.cos(theta))))
+        cv2.arrowedLine(image, (x, y), arrow_end, color=(0, 0, 255), thickness=5, tipLength=0.5)
+        debug_image_msg = self.bridge.cv2_to_compressed_imgmsg(image)
+        if self.pub_d_vs_pose_img.get_num_connections() > 0:
+            self.pub_d_vs_pose_img.publish(debug_image_msg)
 
     def set_lines_from_ground_coordinates(self, color_coordinates_msg, checkpoint=False):
         """
