@@ -201,6 +201,7 @@ class LineDetectorNode(DTROS):
         self.checkpoint_lines = [[None] * 3, [None] * 3, [None] * 3]  # WYR
         self.current_lines_cv = [[None] * 4, [None] * 4, [None] * 4]  # WYR
         self.checkpoint_lines_cv = [[None] * 4, [None] * 4, [None] * 4]  # WYR
+        self.current_lines_par = [[None] * 3, [None] * 3, [None] * 3]  # WYR
         self.current_ground_color_coordinates = []
         self.checkpoint_ground_color_coordinates = []
         self.img_shape = None
@@ -327,6 +328,76 @@ class LineDetectorNode(DTROS):
         if self.pub_d_vs_pose_img.get_num_connections() > 0:
             self.pub_d_vs_pose_img.publish(debug_image_msg)
 
+    @staticmethod
+    def parallelize_lines(lines, tol=0.02, step_size=0.01, max_iter=500):
+        lin_w = lines[0]
+        lin_y = lines[1]
+        lin_r = lines[2]
+        # Find intersection between white and red line
+        x_wr = (lin_r[2] / lin_r[1] - lin_w[2] / lin_w[1]) / (lin_w[0] / lin_w[1] - lin_r[0] / lin_r[1])
+        y_wr = -lin_w[0] / lin_w[1] * x_wr - lin_w[2] / lin_w[1]
+        # Find intersection between yellow and red line
+        x_yr = (lin_r[2] / lin_r[1] - lin_y[2] / lin_y[1]) / (lin_y[0] / lin_y[1] - lin_r[0] / lin_r[1])
+        y_yr = -lin_y[0] / lin_y[1] * x_yr - lin_y[2] / lin_y[1]
+        # Find midpoint on red line
+        x_r_mid = (x_yr + x_wr) / 2
+        y_r_mid = (y_yr + y_wr) / 2
+        # Get initial slopes
+        m_w = -lin_w[0] / lin_w[1]
+        m_y = -lin_y[0] / lin_y[1]
+        m_r = -lin_r[0] / lin_r[1]
+        # Bias the closer line to change less during parallel enforcement
+        m_r_pen = -(1 / m_r)
+        dist_m_wr = abs(m_w - m_r_pen)
+        dist_m_yr = abs(m_y - m_r_pen)
+        bias_w = 1.0
+        bias_y = 1.0
+        # Check white line status
+        if dist_m_wr < 0.3 or dist_m_yr > dist_m_wr * 2:
+            bias_w = 0.1
+        if dist_m_yr < 0.3 or dist_m_wr > dist_m_yr * 2:
+            bias_y = 0.1
+
+        # Equate the slopes for white and yellow line
+        lin_w_new = list(lin_w)
+        lin_y_new = list(lin_y)
+        lin_r_new = list(lin_r)
+        ii = 0
+        while abs(m_w - m_y) > tol and ii < max_iter:
+            # print(m_w)
+            # print(m_y)
+            sign = 1
+            if m_w < m_y:
+                sign = -1
+            m_w = m_w - sign * bias_w * step_size
+            m_y = m_y + sign * bias_y * step_size
+            lin_w_new[1] = lin_w_new[1] + bias_w * step_size
+            lin_y_new[1] = lin_y_new[1] - bias_y * step_size
+            if lin_w_new[1] > 50:
+                lin_w_new[1] = -lin_w_new[1]
+            if lin_y_new[1] > 50:
+                lin_y_new[1] = -lin_y_new[1]
+            ii += 1
+
+        sign_m_w = m_w / abs(m_w)
+        sign_m_y = m_y / abs(m_y)
+        m_w = sign_m_w * max(abs(m_w), 0.01)  # Cap slope to not blow up at 0
+        m_y = sign_m_y * max(abs(m_y), 0.01)  # Cap slope to not blow up at 0
+        lin_w_new[1] = -lin_w_new[0] / m_w
+        lin_y_new[1] = -lin_y_new[0] / m_y
+
+        # Have both white and yellow line meet red line at same point as before
+        lin_w_new[2] = -(y_wr - m_w * x_wr) * lin_w_new[1]
+        lin_y_new[2] = -(y_yr - m_y * x_yr) * lin_y_new[1]
+        # Make red line perpendicular to other 2 lines
+        lin_r_new[1] = -lin_r_new[0] / (-1 / ((m_w + m_y) / 2))
+        m_r = -lin_r_new[0] / lin_r_new[1]
+        # Make red line go through original midpoint
+        lin_r_new[2] = -(y_r_mid - m_r * x_r_mid) * lin_r_new[1]
+        # Save results! We are done from the numerical perspective!
+        lines_new = [lin_w_new, lin_y_new, lin_r_new]
+        return lines_new
+
     def set_lines_from_ground_coordinates(self, color_coordinates_msg, checkpoint=False):
         """
         Computes equation of lines from ground projected coordinates and computes the homography
@@ -346,13 +417,26 @@ class LineDetectorNode(DTROS):
                 lines_cv[i] = line_cv
                 color_line = self.get_abc(x, y, vx, vy)
                 lines[i] = color_line
+
+        # If all three lines are detected, force them to be parallel/perpendicular
+        par_lines = [[None] * 3, [None] * 3, [None] * 3]  # WYR
+        all_lines_valid = True
+        for l in lines:
+            if None in l:
+                all_lines_valid = False
+                break
+        if all_lines_valid:
+            par_lines = self.parallelize_lines(lines)
+
         # Set line equations to corresponding values depending on whether they are for checkpoint or not
         if checkpoint:
             self.checkpoint_lines = lines
+            self.checkpoint_lines_par = par_lines
             self.checkpoint_lines_cv = lines_cv
             self.checkpoint_ground_color_coordinates = pixel_list_list
         else:
             self.current_lines = lines
+            self.current_lines_par = par_lines
             self.current_lines_cv = lines_cv
             self.current_ground_color_coordinates = pixel_list_list
 
@@ -588,9 +672,11 @@ class LineDetectorNode(DTROS):
 
     def debug_ground_lines(self, checkpoint=False):
         colors = ((255, 255, 255), (0, 255, 255), (0, 0, 255))
+        colors_par = ((195, 195, 195), (33, 148, 194), (171, 38, 166))
         self.init_debug_bg_img()
         image = self.debug_img_bg.copy()
         lines_cv = self.checkpoint_lines_cv if checkpoint else self.current_lines_cv
+        lines_par = self.checkpoint_lines_par if checkpoint else self.current_lines_par
         ground_color_coordinates = self.checkpoint_ground_color_coordinates if checkpoint else self.current_ground_color_coordinates
         for i, (line_cv, c_coord) in enumerate(zip(lines_cv, ground_color_coordinates)):
             for point in c_coord:
@@ -612,6 +698,18 @@ class LineDetectorNode(DTROS):
                 topy = int(topy * -400 + 200)
                 # print(vx, bottomx, bottomy, topx, topy)
                 cv2.line(image, (bottomy, bottomx), (topy, topx), colors[i], thickness=1)
+            line_par = lines_par[i]
+            if None not in line_par:
+                bottomx, topx = 0, 0.7
+                bottomy = -(line_par[0] * bottomx + line_par[2]) / line_par[1]
+                topy = -(line_par[0] * topx + line_par[2]) / line_par[1]
+
+                bottomx = int(bottomx * -400 + 300)
+                topx = int(topx * -400 + 300)
+                bottomy = int(bottomy * -400 + 200)
+                topy = int(topy * -400 + 200)
+                print("Plotted parallel line")
+                cv2.line(image, (bottomy, bottomx), (topy, topx), colors_par[i], thickness=1)
         return image
 
     @staticmethod
