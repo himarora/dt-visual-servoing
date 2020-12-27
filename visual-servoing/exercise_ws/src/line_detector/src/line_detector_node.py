@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import numpy as np
+from math import atan
 import cv2
 import rospy
 from cv_bridge import CvBridge
@@ -304,6 +305,15 @@ class LineDetectorNode(DTROS):
         return pixel_list_list
 
     @staticmethod
+    def get_intersections(a_0, b_0, c_0, a_1, b_1, c_1):
+        M = np.array([[a_0, b_0],
+                      [a_1, b_1]]).astype(float).reshape(2, 2)
+        b = np.array([[-c_0],
+                      [-c_1]]).astype(float)
+        pt_intercept = np.linalg.inv(M) @ b
+        return pt_intercept
+
+    @staticmethod
     def compute_homography(lines1, lines2):
         a_white_0, b_white_0, c_white_0 = lines1[0]
         a_yellow_0, b_yellow_0, c_yellow_0 = lines1[1]
@@ -311,6 +321,28 @@ class LineDetectorNode(DTROS):
         a_white_1, b_white_1, c_white_1 = lines2[0]
         a_yellow_1, b_yellow_1, c_yellow_1 = lines2[1]
         a_red_1, b_red_1, c_red_1 = lines2[2]
+
+        get_slope = lambda l: -l[0] / l[1]
+        white_l_0 = np.array((a_white_0, b_white_0, c_white_0))
+        white_l_1 = np.array((a_white_1, b_white_1, c_white_1))
+
+        theta = atan(get_slope(white_l_1)) - atan(get_slope(white_l_0))
+        R = np.array([[np.cos(theta), -np.sin(theta), 0],
+                      [np.sin(theta), np.cos(theta), 0],
+                      [0, 0, 1]])
+
+        int_white_red_0 = LineDetectorNode.get_intersections(a_white_0, b_white_0, c_white_0,
+                                                             a_red_0, b_red_0, c_red_0)
+        int_white_red_1 = LineDetectorNode.get_intersections(a_white_1, b_white_1, c_white_1,
+                                                             a_red_1, b_red_1, c_red_1)
+        t = int_white_red_1 - int_white_red_0
+        T = np.array([[1, 0, t[0]],
+                      [0, 1, t[1]],
+                      [0, 0, 1]], dtype='float')
+        A = T @ R
+        return A
+
+        ## Approach 1
         # lines = np.array(
         #     [[a_white_0, b_white_0, c_white_0],
         #      [a_red_0, b_red_0, c_red_0],
@@ -331,32 +363,34 @@ class LineDetectorNode(DTROS):
         # H = np.linalg.inv(H_prime).T
         # H = np.linalg.pinv(A) @ b
         # return H
-        A = np.array([
-            [a_white_1, 0, 0, b_white_1, 0, 0, c_white_1, 0, 0],
-            [a_red_1, 0, 0, b_red_1, 0, 0, c_red_1, 0, 0],
-            [a_yellow_1, 0, 0, b_yellow_1, 0, 0, c_yellow_1, 0, 0],
-            [0, a_white_1, 0, 0, b_white_1, 0, 0, c_white_1, 0],
-            [0, a_red_1, 0, 0, b_red_1, 0, 0, c_red_1, 0],
-            [0, a_yellow_1, 0, 0, b_yellow_1, 0, 0, c_yellow_1, 0]
-        ], dtype='float')
 
-        b = np.array([a_white_0,
-                      a_red_0,
-                      a_yellow_0,
-                      b_white_0,
-                      b_red_0,
-                      b_yellow_0
-                      ], dtype='float')
-        try:
-            C = np.linalg.pinv(A) @ b
-            affine = np.array(
-                [[C[0], C[1], C[2]],
-                 [C[3], C[4], C[5]],
-                 [0, 0, 1]]
-            )
-            return affine
-        except np.linalg.LinAlgError:
-            return None
+        ## Approach 2
+        # A = np.array([
+        #     [a_white_1, 0, 0, b_white_1, 0, 0, c_white_1, 0, 0],
+        #     [a_red_1, 0, 0, b_red_1, 0, 0, c_red_1, 0, 0],
+        #     [a_yellow_1, 0, 0, b_yellow_1, 0, 0, c_yellow_1, 0, 0],
+        #     [0, a_white_1, 0, 0, b_white_1, 0, 0, c_white_1, 0],
+        #     [0, a_red_1, 0, 0, b_red_1, 0, 0, c_red_1, 0],
+        #     [0, a_yellow_1, 0, 0, b_yellow_1, 0, 0, c_yellow_1, 0]
+        # ], dtype='float')
+        #
+        # b = np.array([a_white_0,
+        #               a_red_0,
+        #               a_yellow_0,
+        #               b_white_0,
+        #               b_red_0,
+        #               b_yellow_0
+        #               ], dtype='float')
+        # try:
+        #     C = np.linalg.pinv(A) @ b
+        #     affine = np.array(
+        #         [[C[0], C[1], C[2]],
+        #          [C[3], C[4], C[5]],
+        #          [0, 0, 1]]
+        #     )
+        #     return affine
+        # except np.linalg.LinAlgError:
+        #     return None
 
     def vs_lane_pose_cb(self, msg):
         theta, p1, p2 = msg.H
