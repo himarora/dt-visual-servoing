@@ -147,6 +147,16 @@ class LineDetectorNode(DTROS):
             dt_topic_type=TopicType.DEBUG
         )
 
+        self.pub_d_vs_lines_all = rospy.Publisher(
+            "/agent/line_detector_node/debug/vs_lines_all/compressed", CompressedImage, queue_size=1,
+            dt_topic_type=TopicType.DEBUG
+        )
+
+        self.pub_d_vs_lines_checkpoint_all = rospy.Publisher(
+            "/agent/line_detector_node/debug/vs_lines_checkpoint_all/compressed", CompressedImage, queue_size=1,
+            dt_topic_type=TopicType.DEBUG
+        )
+
         self.pub_homography = rospy.Publisher(
             "/agent/line_detector_node/homography", FloatList, queue_size=1,
             dt_topic_type=TopicType.PERCEPTION
@@ -202,6 +212,9 @@ class LineDetectorNode(DTROS):
         self.current_lines_cv = [[None] * 4, [None] * 4, [None] * 4]  # WYR
         self.checkpoint_lines_cv = [[None] * 4, [None] * 4, [None] * 4]  # WYR
         self.current_lines_par = [[None] * 3, [None] * 3, [None] * 3]  # WYR
+        self.checkpoint_lines_par = [[None] * 3, [None] * 3, [None] * 3]  # WYR
+        self.current_lines_cv_all = [[], [], []]
+        self.checkpoint_lines_cv_all = [[], [], []]
         self.current_ground_color_coordinates = []
         self.checkpoint_ground_color_coordinates = []
         self.img_shape = None
@@ -281,6 +294,14 @@ class LineDetectorNode(DTROS):
             if np.sqrt(point[0] ** 2 + point[1] ** 2) < dist_thres:
                 pixels.append([point[0], point[1]])
         return np.array(pixels, np.float32)
+
+    def color_coordinates_msg_to_pixels(self, color_coordinates_msg):
+        pixel_lists = color_coordinates_msg.pixel_lists
+        pixel_list_list = []
+        for pixel_l in pixel_lists:
+            pixels = self.pixel_list_msg_to_pixels(pixel_l, dist_thres=0.5)
+            pixel_list_list.append(pixels)
+        return pixel_list_list
 
     @staticmethod
     def compute_homography(lines1, lines2):
@@ -398,20 +419,23 @@ class LineDetectorNode(DTROS):
         lines_new = [lin_w_new, lin_y_new, lin_r_new]
         return lines_new
 
-    def set_lines_from_ground_coordinates(self, color_coordinates_msg, checkpoint=False):
+    def set_lines_from_ground_coordinates(self, pixel_list_list, checkpoint=False):
         """
         Computes equation of lines from ground projected coordinates and computes the homography
         :param color_coordinates_msg:
         :param checkpoint:
         :return:
         """
-        pixel_lists = color_coordinates_msg.pixel_lists
-        pixel_list_list = []
         lines = [[None] * 3, [None] * 3, [None] * 3]  # WYR
         lines_cv = [[None] * 4, [None] * 4, [None] * 4]  # WYR
-        for i, pixel_l in enumerate(pixel_lists):
-            pixels = self.pixel_list_msg_to_pixels(pixel_l, dist_thres=0.5)
-            pixel_list_list.append(pixels)
+
+        # pixel_lists = color_coordinates_msg.pixel_lists
+        # pixel_list_list = []
+        # for pixel_l in pixel_lists:
+        #     pixels = self.pixel_list_msg_to_pixels(pixel_l, dist_thres=0.5)
+        #     pixel_list_list.append(pixels)
+
+        for i, pixels in enumerate(pixel_list_list):
             if len(pixels) >= 2:
                 line_cv = [vx, vy, x, y] = cv2.fitLine(pixels, cv2.DIST_HUBER, 0, 0.01, 0.01)
                 lines_cv[i] = line_cv
@@ -442,23 +466,123 @@ class LineDetectorNode(DTROS):
 
         publisher = self.pub_d_vs_lines_checkpoint if checkpoint else self.pub_d_vs_lines
         if publisher.get_num_connections() > 0:
-            debug_image_msg = self.bridge.cv2_to_compressed_imgmsg(self.debug_ground_lines(checkpoint=checkpoint))
+            debug_image_msg = self.bridge.cv2_to_compressed_imgmsg(
+                self.debug_ground_lines(checkpoint=checkpoint, all=False))
             # debug_image_msg.header = seglist_out.header
             publisher.publish(debug_image_msg)
-        self.log(f"CUR: {self.current_lines}, CKP: {self.checkpoint_lines}")
+        print(f"CUR: {self.current_lines}, CKP: {self.checkpoint_lines}")
+        print(f"CUR_PAR: {self.current_lines_par}, CKP_PAR: {self.checkpoint_lines_par}")
         # If the current image or the checkpoint image changes, compute the homography
         # Needs to have all three lines
+        self.H_par = self.compute_homography(self.current_lines_par, self.checkpoint_lines_par)
         self.H = self.compute_homography(self.current_lines, self.checkpoint_lines)
+        print(f"H: {self.H}")
+        print(f"H_PAR: {self.H_par}")
         homography_msg = FloatList()
-        homography_msg.H = list(self.H.flatten())
-        print(self.H)
+        homography_msg.H = list(self.H_par.flatten())
         self.pub_homography.publish(homography_msg)
 
+    @staticmethod
+    def group_points_together(filtered_pts, pt_group_dist_x=0.1, pt_group_dist_y=0.1, group_size_ignore=2):
+        filtered_pts = np.array(filtered_pts).tolist()
+        list_of_pt_groups = []
+        for curr_pt in filtered_pts:
+            # Find closest point that is not already part of a group we are in
+            new_pt_found = False
+            excluded_pts = [curr_pt]
+            while len(excluded_pts) != len(filtered_pts) and not new_pt_found:
+                closest_pt, dist, dist_x, dist_y = LineDetectorNode.find_closest_pt(curr_pt, excluded_pts, filtered_pts)
+                excluded_pts.append(closest_pt)
+
+                # Check if this closest point is already in the same group as us
+                already_grouped = False
+                for group in list_of_pt_groups:
+                    if curr_pt in group and closest_pt in group:
+                        already_grouped = True
+
+                if not already_grouped:
+                    new_pt_found = True
+
+            # Check if while loop exited bc every point is in the same group, at this point we're done
+            if len(excluded_pts) == len(filtered_pts):
+                break
+
+            # Get our current group (if we have one)
+            new_group = [curr_pt]
+            for group in list_of_pt_groups:
+                if curr_pt in group:
+                    new_group = group
+                    list_of_pt_groups.remove(group)
+
+            # Check if closest point forms a group with current point
+            if dist_x < pt_group_dist_x and dist_y < pt_group_dist_y:
+                # Check if closest point not in our group belongs to a different group and merge it with our group if yes
+                # Otherwise just append it to our group
+                new_group.append(closest_pt)
+                for group in list_of_pt_groups:
+                    if closest_pt in group:
+                        new_group.remove(closest_pt)
+                        new_group.extend(group)
+                        list_of_pt_groups.remove(group)
+
+            # Add the newest group to the list of groups
+            list_of_pt_groups.append(new_group)
+
+        # Get rid of groups that are too small as they are untrustworthy
+        for group in list_of_pt_groups:
+            if len(group) < group_size_ignore:
+                list_of_pt_groups.remove(group)
+
+        return list_of_pt_groups
+
+    @staticmethod
+    def find_closest_pt(target_pt, excluded_pts, pt_list):
+        closest_pt = []
+        min_dist = 10000.0  # Some silly large number
+        for pt in pt_list:
+            if pt not in excluded_pts:
+                dist = ((target_pt[0] - pt[0]) ** 2 + (target_pt[1] - pt[1]) ** 2) ** 0.5
+                if dist < min_dist:
+                    min_dist = dist
+                    min_dist_x = abs(pt[0] - target_pt[0])
+                    min_dist_y = abs(pt[1] - target_pt[1])
+                    closest_pt = pt
+        return closest_pt, min_dist, min_dist_x, min_dist_y
+
+    def set_cluster_lines_from_ground_coordinates(self, pixel_list_list, checkpoint=False):
+        lines_cv = []
+        for i, pixel_list in enumerate(pixel_list_list):  # WYR
+            if len(pixel_list) >= 2:
+                grouped_pixels = self.group_points_together(pixel_list)
+                lines_cv.append([])
+                for group in grouped_pixels:
+                    if len(group) >= 2:
+                        line_cv = cv2.fitLine(np.array(group), cv2.DIST_HUBER, 0, 0.01, 0.01)
+                        lines_cv[-1].append(line_cv)
+        print(f"{[len(lines_cv[i]) for i in range(len(lines_cv))]}")
+        if checkpoint:
+            self.checkpoint_lines_cv_all = lines_cv
+        else:
+            self.current_lines_cv_all = lines_cv
+
+        publisher = self.pub_d_vs_lines_checkpoint_all if checkpoint else self.pub_d_vs_lines_all
+        if publisher.get_num_connections() > 0:
+            debug_image_msg = self.bridge.cv2_to_compressed_imgmsg(
+                self.debug_ground_lines(checkpoint=checkpoint, all=True))
+            publisher.publish(debug_image_msg)
+
+    def handle_ground_coordinates(self, color_coordinates_msg, checkpoint=False):
+        pixel_list_list = self.color_coordinates_msg_to_pixels(color_coordinates_msg)
+        self.set_lines_from_ground_coordinates(pixel_list_list, checkpoint=checkpoint)
+        self.set_cluster_lines_from_ground_coordinates(pixel_list_list, checkpoint=checkpoint)
+
     def color_coordinates_ground_cb(self, color_coordinates_msg):
-        self.set_lines_from_ground_coordinates(color_coordinates_msg, checkpoint=False)
+        self.handle_ground_coordinates(color_coordinates_msg, checkpoint=False)
+        # self.set_lines_from_ground_coordinates(color_coordinates_msg, checkpoint=False)
 
     def color_coordinates_checkpoint_ground_cb(self, color_coordinates_msg):
-        self.set_lines_from_ground_coordinates(color_coordinates_msg, checkpoint=True)
+        self.handle_ground_coordinates(color_coordinates_msg, checkpoint=True)
+        # self.set_lines_from_ground_coordinates(color_coordinates_msg, checkpoint=True)
 
     def publish_color_coordinates(self, image, checkpoint=False):
         """
@@ -468,7 +592,7 @@ class LineDetectorNode(DTROS):
         :return: None
         """
         color_range = {
-            "WHITE": {"MIN": np.array([0, 0, 100], np.uint8), "MAX": np.array([180, 100, 255], np.uint8)},
+            "WHITE": {"MIN": np.array([0, 0, 100], np.uint8), "MAX": np.array([180, 70, 255], np.uint8)},
             "YELLOW": {"MIN": np.array([25, 140, 50], np.uint8), "MAX": np.array([35, 255, 255], np.uint8)},
             "RED": ({"MIN": np.array([0, 140, 100], np.uint8), "MAX": np.array([15, 255, 255], np.uint8)}, {
                 "MIN": np.array([165, 140, 100], np.uint8), "MAX": np.array([180, 255, 255], np.uint8)
@@ -501,22 +625,23 @@ class LineDetectorNode(DTROS):
         if pub_d_img.get_num_connections() > 0:
             debug_image = image.copy() * 0.2
             h, w = image.shape[:2]
-            dist_thres = 75
+            dist_thres = 85
             cv2.circle(debug_image, (80, 80), radius=5, color=(255, 105, 180), thickness=5)
             for i, color_coordinates in enumerate(all_coordinates):
-                filtered_coordinates = []
-                for point in color_coordinates:
-                    if np.sqrt((point[0] - 80) ** 2 + (point[1] - 80) ** 2) < dist_thres:
-                        filtered_coordinates.append(point)
-                        cv2.circle(debug_image, (point[0], point[1]), radius=0, color=colors[i], thickness=-1)
-                if len(filtered_coordinates) > 10:
-                    filtered_coordinates = np.array(filtered_coordinates)
-                    [vx, vy, x, y] = cv2.fitLine(filtered_coordinates, cv2.DIST_HUBER, 0, 0.01, 0.01)
-                    bottomy = h
-                    bottomx = int((bottomy - y) * vx / vy + x)
-                    topy = int(min(filtered_coordinates[:, 1]))
-                    topx = int((topy - y) * vx / vy + x)
-                    cv2.line(debug_image, (bottomx, bottomy), (topx, topy), colors[i], thickness=2)
+                if i == 0:
+                    filtered_coordinates = []
+                    for point in color_coordinates:
+                        if np.sqrt((point[0] - 80) ** 2 + (point[1] - 80) ** 2) < dist_thres:
+                            filtered_coordinates.append(point)
+                            cv2.circle(debug_image, (point[0], point[1]), radius=0, color=colors[i], thickness=-1)
+                    if len(filtered_coordinates) > 10:
+                        filtered_coordinates = np.array(filtered_coordinates)
+                        [vx, vy, x, y] = cv2.fitLine(filtered_coordinates, cv2.DIST_HUBER, 0, 0.01, 0.01)
+                        bottomy = h
+                        bottomx = int((bottomy - y) * vx / vy + x)
+                        topy = int(min(filtered_coordinates[:, 1]))
+                        topx = int((topy - y) * vx / vy + x)
+                        cv2.line(debug_image, (bottomx, bottomy), (topx, topy), colors[i], thickness=2)
 
             debug_image_msg = self.bridge.cv2_to_compressed_imgmsg(debug_image)
             # debug_image_msg.header = image_msg.header
@@ -670,46 +795,54 @@ class LineDetectorNode(DTROS):
                  color=(255, 0, 0),
                  thickness=1)
 
-    def debug_ground_lines(self, checkpoint=False):
+    def debug_ground_lines(self, checkpoint=False, all=False):
         colors = ((255, 255, 255), (0, 255, 255), (0, 0, 255))
         colors_par = ((195, 195, 195), (33, 148, 194), (171, 38, 166))
         self.init_debug_bg_img()
         image = self.debug_img_bg.copy()
-        lines_cv = self.checkpoint_lines_cv if checkpoint else self.current_lines_cv
+        if not all:
+            lines_cv = self.checkpoint_lines_cv if checkpoint else self.current_lines_cv
+            lines_cv = [[x] for x in lines_cv]  # Wrap each single line in a list
+        else:
+            lines_cv = self.checkpoint_lines_cv_all if checkpoint else self.current_lines_cv_all
         lines_par = self.checkpoint_lines_par if checkpoint else self.current_lines_par
         ground_color_coordinates = self.checkpoint_ground_color_coordinates if checkpoint else self.current_ground_color_coordinates
-        for i, (line_cv, c_coord) in enumerate(zip(lines_cv, ground_color_coordinates)):
+        for i, (lines_cv, c_coord) in enumerate(zip(lines_cv, ground_color_coordinates)):
             for point in c_coord:
                 x = int((point[1] * -400) + 200)
                 y = int((point[0] * -400) + 300)
                 cv2.circle(image, (x, y), radius=2, color=colors[i], thickness=2)
-            if None not in line_cv:
-                vx, vy, x, y = line_cv
-                # bottomy = h
-                # bottomx = int((bottomy - y) * vx / vy + x)
-                bottomx = 0
-                bottomy = (bottomx - x) * vy / vx + y
-                topx = 0.7
-                topy = (topx - x) * vy / vx + y
+            # For each line of each color
+            for line_cv in lines_cv:
+                if None not in line_cv:
+                    vx, vy, x, y = line_cv
+                    # bottomy = h
+                    # bottomx = int((bottomy - y) * vx / vy + x)
+                    bottomx = 0
+                    bottomy = (bottomx - x) * vy / vx + y
+                    topx = 0.7
+                    topy = (topx - x) * vy / vx + y
 
-                bottomx = int(bottomx * -400 + 300)
-                topx = int(topx * -400 + 300)
-                bottomy = int(bottomy * -400 + 200)
-                topy = int(topy * -400 + 200)
-                # print(vx, bottomx, bottomy, topx, topy)
-                cv2.line(image, (bottomy, bottomx), (topy, topx), colors[i], thickness=1)
-            line_par = lines_par[i]
-            if None not in line_par:
-                bottomx, topx = 0, 0.7
-                bottomy = -(line_par[0] * bottomx + line_par[2]) / line_par[1]
-                topy = -(line_par[0] * topx + line_par[2]) / line_par[1]
+                    bottomx = int(bottomx * -400 + 300)
+                    topx = int(topx * -400 + 300)
+                    bottomy = int(bottomy * -400 + 200)
+                    topy = int(topy * -400 + 200)
+                    # print(vx, bottomx, bottomy, topx, topy)
+                    cv2.line(image, (bottomy, bottomx), (topy, topx), colors[i], thickness=1)
+                # Only plot parallel lines if plotting three lines
+                if not all:
+                    line_par = lines_par[i]
+                    if None not in line_par:
+                        bottomx, topx = 0, 0.7
+                        bottomy = -(line_par[0] * bottomx + line_par[2]) / line_par[1]
+                        topy = -(line_par[0] * topx + line_par[2]) / line_par[1]
 
-                bottomx = int(bottomx * -400 + 300)
-                topx = int(topx * -400 + 300)
-                bottomy = int(bottomy * -400 + 200)
-                topy = int(topy * -400 + 200)
-                print("Plotted parallel line")
-                cv2.line(image, (bottomy, bottomx), (topy, topx), colors_par[i], thickness=1)
+                        bottomx = int(bottomx * -400 + 300)
+                        topx = int(topx * -400 + 300)
+                        bottomy = int(bottomy * -400 + 200)
+                        topy = int(topy * -400 + 200)
+                        print("Plotted parallel line")
+                        cv2.line(image, (bottomy, bottomx), (topy, topx), colors_par[i], thickness=1)
         return image
 
     @staticmethod
