@@ -347,13 +347,16 @@ class LineDetectorNode(DTROS):
                       b_red_0,
                       b_yellow_0
                       ], dtype='float')
-        C = np.linalg.pinv(A) @ b
-        affine = np.array(
-            [[C[0], C[1], C[2]],
-             [C[3], C[4, C[5]]],
-             [0, 0, 1]]
-        )
-        return affine
+        try:
+            C = np.linalg.pinv(A) @ b
+            affine = np.array(
+                [[C[0], C[1], C[2]],
+                 [C[3], C[4], C[5]],
+                 [0, 0, 1]]
+            )
+            return affine
+        except np.linalg.LinAlgError:
+            return None
 
     def vs_lane_pose_cb(self, msg):
         theta, p1, p2 = msg.H
@@ -370,7 +373,7 @@ class LineDetectorNode(DTROS):
             self.pub_d_vs_pose_img.publish(debug_image_msg)
 
     @staticmethod
-    def parallelize_lines(lines, tol=0.02, step_size=0.01, max_iter=500):
+    def parallelize_lines(lines, tol=0.02, step_size=0.01, max_iter=500, dist_wy=0.3):
         lin_w = lines[0]
         lin_y = lines[1]
         lin_r = lines[2]
@@ -435,6 +438,28 @@ class LineDetectorNode(DTROS):
         m_r = -lin_r_new[0] / lin_r_new[1]
         # Make red line go through original midpoint
         lin_r_new[2] = -(y_r_mid - m_r * x_r_mid) * lin_r_new[1]
+
+        # Enforce distance between yellow and white line
+        x_rand = 0.0
+        ii = 0
+        dist_curr = dist_wy * 2
+        while abs(dist_wy - dist_curr) > tol / 100 and ii < max_iter:
+            y_rand_w = m_w * x_rand - lin_w_new[2] / lin_w_new[1]  # Get random point on white line
+            y_rand_y = m_y * x_rand - lin_y_new[2] / lin_y_new[1]  # Get random point on yellow line
+            diff_vect = np.array([0.0, y_rand_y - y_rand_w])  # Get vector between two points
+            dir_vect = np.array([lin_w_new[1], -lin_w_new[0]])  # Get direction vector for white line
+
+            v_proj = np.dot(dir_vect, diff_vect) / np.linalg.norm(dir_vect) * diff_vect / np.linalg.norm(dir_vect)
+            dist_curr = np.linalg.norm(diff_vect - v_proj)
+
+            curr_step = step_size
+            if dist_curr > dist_wy:
+                curr_step = -step_size
+
+            lin_w_new[2] = lin_w_new[2] + curr_step / 2
+            lin_y_new[2] = lin_y_new[2] + curr_step / 2
+            ii += 1
+
         # Save results! We are done from the numerical perspective!
         lines_new = [lin_w_new, lin_y_new, lin_r_new]
         return lines_new
@@ -495,12 +520,14 @@ class LineDetectorNode(DTROS):
         # If the current image or the checkpoint image changes, compute the homography
         # Needs to have all three lines
         self.H_par = self.compute_homography(self.current_lines_par, self.checkpoint_lines_par)
-        self.H = self.compute_homography(self.current_lines, self.checkpoint_lines)
-        print(f"H: {self.H}")
+        # self.H_par = self.compute_homography(self.checkpoint_lines_par, self.current_lines_par)
+        # self.H = self.compute_homography(self.current_lines, self.checkpoint_lines)
+        # print(f"H: {self.H}")
         print(f"H_PAR: {self.H_par}")
-        homography_msg = FloatList()
-        homography_msg.H = list(self.H_par.flatten())
-        self.pub_homography.publish(homography_msg)
+        if self.H_par is not None:
+            homography_msg = FloatList()
+            homography_msg.H = list(self.H_par.flatten())
+            self.pub_homography.publish(homography_msg)
 
     @staticmethod
     def group_points_together(filtered_pts, pt_group_dist_x=0.1, pt_group_dist_y=0.1, group_size_ignore=2):
@@ -579,7 +606,6 @@ class LineDetectorNode(DTROS):
                     if len(group) >= 2:
                         line_cv = cv2.fitLine(np.array(group), cv2.DIST_HUBER, 0, 0.01, 0.01)
                         lines_cv[-1].append(line_cv)
-        print(f"{[len(lines_cv[i]) for i in range(len(lines_cv))]}")
         if checkpoint:
             self.checkpoint_lines_cv_all = lines_cv
         else:
@@ -861,7 +887,6 @@ class LineDetectorNode(DTROS):
                         topx = int(topx * -400 + 300)
                         bottomy = int(bottomy * -400 + 200)
                         topy = int(topy * -400 + 200)
-                        print("Plotted parallel line")
                         cv2.line(image, (bottomy, bottomx), (topy, topx), colors_par[i], thickness=1)
         return image
 
