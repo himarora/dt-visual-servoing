@@ -305,35 +305,55 @@ class LineDetectorNode(DTROS):
 
     @staticmethod
     def compute_homography(lines1, lines2):
-        # print(lines1, lines2)
         a_white_0, b_white_0, c_white_0 = lines1[0]
-        a_red_0, b_red_0, c_red_0 = lines1[2]
-        # a_red_0, b_red_0, c_red_0 = 1., 1., 1.
         a_yellow_0, b_yellow_0, c_yellow_0 = lines1[1]
+        a_red_0, b_red_0, c_red_0 = lines1[2]
         a_white_1, b_white_1, c_white_1 = lines2[0]
-        a_red_1, b_red_1, c_red_1 = lines2[2]
-        # a_red_1, b_red_1, c_red_1 = 1., 1., 1.
         a_yellow_1, b_yellow_1, c_yellow_1 = lines2[1]
-        lines = np.array(
-            [[a_white_0, b_white_0, c_white_0],
-             [a_red_0, b_red_0, c_red_0],
-             [a_yellow_0, b_yellow_0, c_yellow_0]]
-        ).astype(float)
-        b = np.array(
-            [a_white_1, a_red_1, a_yellow_1, b_white_1, b_red_1, b_yellow_1, c_white_1, c_red_1, c_yellow_1]).astype(
-            float)
-        # print(lines, b)
-        A = np.zeros((9, 9), dtype=float)
-        A[:3, :3] = A[3:6, 3:6] = A[6:, 6:] = lines
-        H_prime = np.linalg.inv(A) @ b
-        H_prime = H_prime.reshape(-1) / H_prime[8]
-        H_prime = np.array(
-            [[H_prime[0], H_prime[1], H_prime[2]],
-             [H_prime[3], H_prime[4], H_prime[5]],
-             [H_prime[6], H_prime[7], H_prime[8]]
-             ])
-        H = np.linalg.inv(H_prime).T
-        return H
+        a_red_1, b_red_1, c_red_1 = lines2[2]
+        # lines = np.array(
+        #     [[a_white_0, b_white_0, c_white_0],
+        #      [a_red_0, b_red_0, c_red_0],
+        #      [a_yellow_0, b_yellow_0, c_yellow_0]]
+        # ).astype(float)
+        # b = np.array(
+        #     [a_white_1, a_red_1, a_yellow_1, b_white_1, b_red_1, b_yellow_1, c_white_1, c_red_1, c_yellow_1]).astype(
+        #     float)
+        # A = np.zeros((9, 9), dtype=float)
+        # A[:3, :3] = A[3:6, 3:6] = A[6:, 6:] = lines
+        # H_prime = np.linalg.inv(A) @ b
+        # H_prime = H_prime.reshape(-1) / H_prime[8]
+        # H_prime = np.array(
+        #     [[H_prime[0], H_prime[1], H_prime[2]],
+        #      [H_prime[3], H_prime[4], H_prime[5]],
+        #      [H_prime[6], H_prime[7], H_prime[8]]
+        #      ])
+        # H = np.linalg.inv(H_prime).T
+        # H = np.linalg.pinv(A) @ b
+        # return H
+        A = np.array([
+            [a_white_1, 0, 0, b_white_1, 0, 0, c_white_1, 0, 0],
+            [a_red_1, 0, 0, b_red_1, 0, 0, c_red_1, 0, 0],
+            [a_yellow_1, 0, 0, b_yellow_1, 0, 0, c_yellow_1, 0, 0],
+            [0, a_white_1, 0, 0, b_white_1, 0, 0, c_white_1, 0],
+            [0, a_red_1, 0, 0, b_red_1, 0, 0, c_red_1, 0],
+            [0, a_yellow_1, 0, 0, b_yellow_1, 0, 0, c_yellow_1, 0]
+        ], dtype='float')
+
+        b = np.array([a_white_0,
+                      a_red_0,
+                      a_yellow_0,
+                      b_white_0,
+                      b_red_0,
+                      b_yellow_0
+                      ], dtype='float')
+        C = np.linalg.pinv(A) @ b
+        affine = np.array(
+            [[C[0], C[1], C[2]],
+             [C[3], C[4, C[5]]],
+             [0, 0, 1]]
+        )
+        return affine
 
     def vs_lane_pose_cb(self, msg):
         theta, p1, p2 = msg.H
