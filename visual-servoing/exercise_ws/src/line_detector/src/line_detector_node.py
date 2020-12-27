@@ -322,24 +322,27 @@ class LineDetectorNode(DTROS):
         a_yellow_1, b_yellow_1, c_yellow_1 = lines2[1]
         a_red_1, b_red_1, c_red_1 = lines2[2]
 
-        get_slope = lambda l: -l[0] / l[1]
-        white_l_0 = np.array((a_white_0, b_white_0, c_white_0))
-        white_l_1 = np.array((a_white_1, b_white_1, c_white_1))
+        try:
+            get_slope = lambda l: -l[0] / l[1]
+            white_l_0 = np.array((a_white_0, b_white_0, c_white_0))
+            white_l_1 = np.array((a_white_1, b_white_1, c_white_1))
 
-        theta = atan(get_slope(white_l_1)) - atan(get_slope(white_l_0))
-        R = np.array([[np.cos(theta), -np.sin(theta), 0],
-                      [np.sin(theta), np.cos(theta), 0],
-                      [0, 0, 1]])
+            theta = atan(get_slope(white_l_1)) - atan(get_slope(white_l_0))
+            R = np.array([[np.cos(theta), -np.sin(theta), 0],
+                          [np.sin(theta), np.cos(theta), 0],
+                          [0, 0, 1]])
 
-        int_white_red_0 = LineDetectorNode.get_intersections(a_white_0, b_white_0, c_white_0,
-                                                             a_red_0, b_red_0, c_red_0)
-        int_white_red_1 = LineDetectorNode.get_intersections(a_white_1, b_white_1, c_white_1,
-                                                             a_red_1, b_red_1, c_red_1)
-        t = int_white_red_1 - int_white_red_0
-        T = np.array([[1, 0, t[0]],
-                      [0, 1, t[1]],
-                      [0, 0, 1]], dtype='float')
-        A = T @ R
+            int_white_red_0 = LineDetectorNode.get_intersections(a_white_0, b_white_0, c_white_0,
+                                                                 a_red_0, b_red_0, c_red_0)
+            int_white_red_1 = LineDetectorNode.get_intersections(a_white_1, b_white_1, c_white_1,
+                                                                 a_red_1, b_red_1, c_red_1)
+            t = int_white_red_1 - int_white_red_0
+            T = np.array([[1, 0, t[0]],
+                          [0, 1, t[1]],
+                          [0, 0, 1]], dtype='float')
+            A = T @ R
+        except TypeError:
+            A = None
         return A
 
         ## Approach 1
@@ -708,20 +711,20 @@ class LineDetectorNode(DTROS):
             dist_thres = 85
             cv2.circle(debug_image, (80, 80), radius=5, color=(255, 105, 180), thickness=5)
             for i, color_coordinates in enumerate(all_coordinates):
-                if i == 0:
-                    filtered_coordinates = []
-                    for point in color_coordinates:
-                        if np.sqrt((point[0] - 80) ** 2 + (point[1] - 80) ** 2) < dist_thres:
-                            filtered_coordinates.append(point)
-                            cv2.circle(debug_image, (point[0], point[1]), radius=0, color=colors[i], thickness=-1)
-                    if len(filtered_coordinates) > 10:
-                        filtered_coordinates = np.array(filtered_coordinates)
-                        [vx, vy, x, y] = cv2.fitLine(filtered_coordinates, cv2.DIST_HUBER, 0, 0.01, 0.01)
-                        bottomy = h
-                        bottomx = int((bottomy - y) * vx / vy + x)
-                        topy = int(min(filtered_coordinates[:, 1]))
-                        topx = int((topy - y) * vx / vy + x)
-                        cv2.line(debug_image, (bottomx, bottomy), (topx, topy), colors[i], thickness=2)
+                # if i == 0:
+                filtered_coordinates = []
+                for point in color_coordinates:
+                    if np.sqrt((point[0] - 80) ** 2 + (point[1] - 80) ** 2) < dist_thres:
+                        filtered_coordinates.append(point)
+                        cv2.circle(debug_image, (point[0], point[1]), radius=0, color=colors[i], thickness=-1)
+                if len(filtered_coordinates) > 10:
+                    filtered_coordinates = np.array(filtered_coordinates)
+                    [vx, vy, x, y] = cv2.fitLine(filtered_coordinates, cv2.DIST_HUBER, 0, 0.01, 0.01)
+                    bottomy = h
+                    bottomx = int((bottomy - y) * vx / vy + x)
+                    topy = int(min(filtered_coordinates[:, 1]))
+                    topx = int((topy - y) * vx / vy + x)
+                    cv2.line(debug_image, (bottomx, bottomy), (topx, topy), colors[i], thickness=2)
 
             debug_image_msg = self.bridge.cv2_to_compressed_imgmsg(debug_image)
             # debug_image_msg.header = image_msg.header
