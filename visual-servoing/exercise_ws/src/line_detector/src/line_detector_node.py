@@ -159,7 +159,7 @@ class LineDetectorNode(DTROS):
         )
 
         self.pub_homography = rospy.Publisher(
-            "/agent/line_detector_node/homography", FloatList, queue_size=1,
+            "/agent/line_detector_node/affine", FloatList, queue_size=1,
             dt_topic_type=TopicType.PERCEPTION
         )
 
@@ -395,6 +395,10 @@ class LineDetectorNode(DTROS):
             lines = None
         self.H = self.compute_homography(lines, self.best_matching_points)
         print(f"H: {self.H}")
+        if self.H is not None:
+            homography_msg = FloatList()
+            homography_msg.H = list(np.array(self.H, dtype=np.float32).flatten())
+            self.pub_homography.publish(homography_msg)
 
     def find_and_project_best_matching_points(self, red_l_0=None, red_l_1=None,
                                               white_l_0=None, white_l_1=None,
