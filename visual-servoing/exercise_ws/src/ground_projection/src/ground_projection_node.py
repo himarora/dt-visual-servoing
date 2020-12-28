@@ -59,6 +59,10 @@ class GroundProjectionNode(DTROS):
             "/agent/line_detector_node/color_coordinates_checkpoint", PixelListList,
             self.colorcoordinates_checkpoint_cb, queue_size=1)
 
+        self.sub_vs_matching_points = rospy.Subscriber(
+            "/agent/line_detector_node/vs_match_points", PixelList,
+            self.matching_points_cb, queue_size=1)
+
         # publishers
         self.pub_lineseglist = rospy.Publisher("~lineseglist_out",
                                                SegmentList, queue_size=1, dt_topic_type=TopicType.PERCEPTION)
@@ -67,6 +71,8 @@ class GroundProjectionNode(DTROS):
         self.pub_groundpixels_checkpoint = rospy.Publisher("~color_coordinates_ground_checkpoint",
                                                            PixelListList, queue_size=1,
                                                            dt_topic_type=TopicType.PERCEPTION)
+        self.pub_matching_points = rospy.Publisher("~vs_match_points_ground",
+                                                   PixelList, queue_size=1, dt_topic_type=TopicType.PERCEPTION)
         self.pub_debug_img = rospy.Publisher("~debug/ground_projection_image/compressed",
                                              CompressedImage, queue_size=1, dt_topic_type=TopicType.DEBUG)
 
@@ -102,6 +108,21 @@ class GroundProjectionNode(DTROS):
     def colorcoordinates_checkpoint_cb(self, pixel_list_list_msg):
         msg = self.get_ground_projected_msg(pixel_list_list_msg)
         self.pub_groundpixels_checkpoint.publish(msg)
+
+    def matching_points_cb(self, pixel_list_msg):
+        msg = self.get_ground_projected_msg(pixel_list_msg)
+        self.pub_matching_points.publish(msg)
+
+    def get_ground_projected_msg_list(self, pixel_list_msg):
+        ground_pixel_list = []
+        for pixel in pixel_list_msg.pixels:
+            ground_point = self.pixel_msg_to_ground_msg(pixel)
+            ground_pixel = Pixel()
+            ground_pixel.x, ground_pixel.y = ground_point.x, ground_point.y
+            ground_pixel_list.append(ground_pixel)
+        pixel_list_msg = PixelList()
+        pixel_list_msg.pixels = ground_pixel_list
+        return pixel_list_msg
 
     def get_ground_projected_msg(self, pixel_list_list_msg):
         pixel_list_list = pixel_list_list_msg.pixel_lists

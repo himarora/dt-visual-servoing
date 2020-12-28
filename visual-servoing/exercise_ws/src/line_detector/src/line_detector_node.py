@@ -168,7 +168,21 @@ class LineDetectorNode(DTROS):
             dt_topic_type=TopicType.DEBUG
         )
 
+        self.pub_d_vs_white_img = rospy.Publisher(
+            "/agent/line_detector_node/vs_white_img/compressed", CompressedImage, queue_size=1,
+            dt_topic_type=TopicType.DEBUG
+        )
+
+        self.pub_vs_match_points = rospy.Publisher(
+            "/agent/line_detector_node/vs_match_points", PixelList, queue_size=1,
+            dt_topic_type=TopicType.PERCEPTION
+        )
+
         # Subscribers
+        self.sub_vs_match_points = rospy.Subscriber(
+            "/agent/ground_projection_node/vs_match_points_ground", PixelList, self.ground_matching_points_cb,
+            queue_size=1)
+
         self.sub_image = rospy.Subscriber(
             "~image/compressed",
             CompressedImage,
@@ -221,9 +235,14 @@ class LineDetectorNode(DTROS):
         self.current_ground_color_coordinates = []
         self.checkpoint_ground_color_coordinates = []
         self.best_matching_lines_cv = [[], []]
+        self.best_matching_points = [[], []]
         self.img_shape = None
         self.H = None
         self.debug_img_bg = None
+        self.current_im_white = None
+        self.checkpoint_im_white = None
+        self.current_l_white = None
+        self.checkpoint_l_white = None
 
         self.arr_cutoff = np.array([
             self._top_cutoff, self._top_cutoff
@@ -272,7 +291,7 @@ class LineDetectorNode(DTROS):
         self.publish_color_coordinates(self.checkpoint_image, checkpoint=True)
 
     @staticmethod
-    def get_abc(x, y, vx, vy):
+    def get_abc(vx, vy, x, y):
         a = 1 / ((vx / vy) * y - x)
         b = - vx / (vy * (vx / vy * y - x))
         c = 1
@@ -309,6 +328,8 @@ class LineDetectorNode(DTROS):
 
     @staticmethod
     def get_intersections(a_0, b_0, c_0, a_1, b_1, c_1):
+        if isinstance(a_0, np.ndarray):
+            a_0, b_0, c_0, a_1, b_1, c_1 = a_0[0], b_0[0], c_0[0], a_1[0], b_1[0], c_1[0]
         M = np.array([[a_0, b_0],
                       [a_1, b_1]]).astype(float).reshape(2, 2)
         b = np.array([[-c_0],
@@ -343,54 +364,91 @@ class LineDetectorNode(DTROS):
 
         return best_corner
 
-    @staticmethod
-    def get_best_matching_points(red_l_0=None, red_l_1=None,
-                                 white_l_0=None, white_l_1=None,
-                                 yellow_l_0=None, yellow_l_1=None,
-                                 white_im_0=None, white_im_1=None):
+    def ground_matching_points_cb(self, ground_match_points_msg):
+        # If called directly by this node
+        if isinstance(ground_match_points_msg, tuple):
+            self.best_matching_points = (ground_match_points_msg[0], ground_match_points_msg[1])
+            print(f"Matching points via RY/RW: {self.best_matching_points}")
+        # If received callback from ground projection node
+        else:
+            pixels = ground_match_points_msg.pixels
+            gp1, gp2 = pixels
+            x1, y1 = gp1.x, gp1.y
+            x2, y2 = gp2.x, gp2.y
+            self.best_matching_points = ((x1, y1), (x2, y2))
+            print(f"Matching points via white: {self.best_matching_points}")
+
+        # Plot a debug image containing all the lines as well as the best matching lines
+        publisher = self.pub_d_vs_lines_all
+        if publisher.get_num_connections() > 0:
+            debug_image_msg = self.bridge.cv2_to_compressed_imgmsg(
+                self.debug_ground_lines(checkpoint=False, all=True))
+            publisher.publish(debug_image_msg)
+
+        # Publish affine transformation
+        x = self.best_matching_lines_cv
+        if len(x) == 2 and x[0] is not None and len(x[0]) == 4 and x[1] is not None and len(x[1]) == 4:
+            lines = (self.get_abc(*x[0]), self.get_abc(*x[1]))
+        else:
+            lines = None
+        self.H = self.compute_homography(lines, self.best_matching_points)
+        print(f"H: {self.H}")
+
+    def find_and_project_best_matching_points(self, red_l_0=None, red_l_1=None,
+                                              white_l_0=None, white_l_1=None,
+                                              yellow_l_0=None, yellow_l_1=None,
+                                              im_white_l_0=None, im_white_l_1=None,
+                                              white_im_0=None, white_im_1=None):
         get_coordinates = lambda l: (l[0], l[1], l[2])
+
+        # Either red-white or red-yellow in ground space
         if not red_l_0 is None and not red_l_1 is None:
             a_red_0, b_red_0, c_red_0 = get_coordinates(red_l_0)
             a_red_1, b_red_1, c_red_1 = get_coordinates(red_l_1)
             if not white_l_0 is None and not white_l_1 is None:
                 a_white_0, b_white_0, c_white_0 = get_coordinates(white_l_0)
                 a_white_1, b_white_1, c_white_1 = get_coordinates(white_l_1)
-
-                int_white_red_0 = LineDetectorNode.get_intersections(a_white_0, b_white_0, c_white_0,
-                                                                     a_red_0, b_red_0, c_red_0)
-                int_white_red_1 = LineDetectorNode.get_intersections(a_white_1, b_white_1, c_white_1,
-                                                                     a_red_1, b_red_1, c_red_1)
-                return int_white_red_0, int_white_red_1
+                int_white_red_0 = self.get_intersections(a_white_0, b_white_0, c_white_0,
+                                                         a_red_0, b_red_0, c_red_0)
+                int_white_red_1 = self.get_intersections(a_white_1, b_white_1, c_white_1,
+                                                         a_red_1, b_red_1, c_red_1)
+                return self.ground_matching_points_cb((int_white_red_0, int_white_red_1))
             if not yellow_l_0 is None and not yellow_l_1 is None:
                 a_yellow_0, b_yellow_0, c_yellow_0 = get_coordinates(yellow_l_0)
                 a_yellow_1, b_yellow_1, c_yellow_1 = get_coordinates(yellow_l_1)
+                int_yellow_red_0 = self.get_intersections(a_yellow_0, b_yellow_0, c_yellow_0,
+                                                          a_red_0, b_red_0, c_red_0)
+                int_yellow_red_1 = self.get_intersections(a_yellow_1, b_yellow_1, c_yellow_1,
+                                                          a_red_1, b_red_1, c_red_1)
+                return self.ground_matching_points_cb((int_yellow_red_0, int_yellow_red_1))
 
-                int_yellow_red_0 = LineDetectorNode.get_intersections(a_yellow_0, b_yellow_0, c_yellow_0,
-                                                                      a_red_0, b_red_0, c_red_0)
-                int_yellow_red_1 = LineDetectorNode.get_intersections(a_yellow_1, b_yellow_1, c_yellow_1,
-                                                                      a_red_1, b_red_1, c_red_1)
-                return int_yellow_red_0, int_yellow_red_1
+        # Image space
         elif not white_im_0 is None and not white_im_1 is None:
-            perpendicular_d_l2p = lambda l, p: l @ p
-            white_corner_0 = LineDetectorNode.detect_corner_on_line(gray_im=white_im_0,
-                                                                    line_homo=white_l_0,
-                                                                    maxCorners=10,
-                                                                    qualityLevel=0.5,
-                                                                    d_f=perpendicular_d_l2p,
-                                                                    d_thres=25,
-                                                                    im=None)
+            if not white_l_0 is None and not white_l_1 is None:
+                perpendicular_d_l2p = lambda l, p: l @ p
+                white_corner_0 = self.detect_corner_on_line(gray_im=white_im_0,
+                                                            line_homo=im_white_l_0,
+                                                            maxCorners=10,
+                                                            qualityLevel=0.5,
+                                                            d_f=perpendicular_d_l2p,
+                                                            d_thres=0.1,
+                                                            im=None)
+                white_corner_1 = self.detect_corner_on_line(gray_im=white_im_1,
+                                                            line_homo=im_white_l_1,
+                                                            maxCorners=10,
+                                                            qualityLevel=0.5,
+                                                            d_f=perpendicular_d_l2p,
+                                                            d_thres=0.1,
+                                                            im=None)
 
-            white_corner_1 = LineDetectorNode.detect_corner_on_line(gray_im=white_im_1,
-                                                                    line_homo=white_l_0,
-                                                                    maxCorners=10,
-                                                                    qualityLevel=0.5,
-                                                                    d_f=perpendicular_d_l2p,
-                                                                    d_thres=25,
-                                                                    im=None)
-            if not white_corner_0 is None and not white_corner_1 is None:
-                ## TODO: we need to project white_corner_0 and white_corner_1 to ground space
-                return white_corner_0, white_corner_1
-        return None
+                if not white_corner_0 is None and not white_corner_1 is None:
+                    msg = PixelList()
+                    p1, p2 = Pixel(), Pixel()
+                    p1.x, p1.y = white_corner_0
+                    msg.pixels = [white_corner_0, white_corner_1]
+                    self.pub_vs_match_points.publish(msg)
+                    # Publish and wait for the ground projection node to call back
+        return self.ground_matching_points_cb((None, None))
 
     @staticmethod
     def compute_homography(best_matching_lines=None, best_matching_points=None):
@@ -414,10 +472,17 @@ class LineDetectorNode(DTROS):
                 trans_M = T(t)
         else:
             p0, p1 = best_matching_points
-            t = p1 - p0
-            trans_M = T(t)
-            rotation_M = np.identity(3)
-        affine = trans_M @ rotation_M
+            if p0 is not None and len(p0) == 2 and p1 is not None and len(p1) == 2:
+                p0, p1 = np.array(p0), np.array(p1)
+                t = p1 - p0
+                trans_M = T(t)
+                rotation_M = np.identity(3)
+            else:
+                trans_M, rotation_M = None, None
+        if trans_M is not None and rotation_M is not None:
+            affine = trans_M @ rotation_M
+        else:
+            affine = None
         return affine
 
         ## Approach 3
@@ -624,6 +689,39 @@ class LineDetectorNode(DTROS):
                     min_i, min_j = i, j
         return min_i, min_j
 
+    @staticmethod
+    def find_closest_subset_pair(groups1, groups2):
+        min_dist, min_i, min_j = 99999999, 0, 0
+        for i, g1 in enumerate(groups1):
+            for j, g2 in enumerate(groups2):
+                r_g1, o_g1 = g1[0], g1[1]
+                r_g2, o_g2 = g2[0], g2[1]
+                dist = np.abs(np.mean(r_g1) - np.mean(r_g2)) + np.abs(np.mean(o_g1) - np.mean(o_g2))
+                if dist < min_dist:
+                    min_dist = dist
+                    min_i, min_j = i, j
+        return min_i, min_j
+
+    @staticmethod
+    def get_angle_between_lines(line1, line2):
+        yellow_line = LineDetectorNode.get_abc(*line1)
+        red_line = LineDetectorNode.get_abc(*line2)
+        m1 = -yellow_line[0] / yellow_line[1]
+        m2 = -red_line[0] / red_line[1]
+        tan_theta = np.abs((m2 - m1) / (1 + m1 * m2))
+        theta = atan(tan_theta)
+        return theta * 57.296
+
+    @staticmethod
+    def filter_perpendicular_lines(lines_color1, lines_color2, thres_angle=50.):
+        perpendicular_lines = []
+        for i, lc1 in enumerate(lines_color1):
+            for j, lc2 in enumerate(lines_color2):
+                angle = LineDetectorNode.get_angle_between_lines(lc1, lc2)
+                if angle >= thres_angle:
+                    perpendicular_lines.append((i, j))
+        return perpendicular_lines
+
     def set_matching_lines(self):
         """
         Multiple colored lines. [[[wa1, wb1, wc1], [wa2, wb2, wc2], []], [[ya1, yb1, yc1], []...], [[], []...]]
@@ -632,7 +730,7 @@ class LineDetectorNode(DTROS):
         cur_white_all_l, cur_yellow_all_l, cur_red_all_l = cur_lines_all = self.current_lines_cv_all
         ckp_white_all_l, ckp_yellow_all_l, ckp_red_all_l = ckp_lines_all = self.checkpoint_lines_cv_all
         print(
-            f"Trying to match lines: CUR:{len(cur_white_all_l), len(cur_yellow_all_l), len(cur_red_all_l)} CKP:{len(ckp_white_all_l), len(ckp_yellow_all_l), len(ckp_red_all_l)}")
+            f"Matching single line: CUR:{len(cur_white_all_l), len(cur_yellow_all_l), len(cur_red_all_l)} CKP:{len(ckp_white_all_l), len(ckp_yellow_all_l), len(ckp_red_all_l)}")
 
         # Points
         cur_white_all_p, cur_yellow_all_p, cur_red_all_p = cur_points_all = self.current_points_cv_all
@@ -645,15 +743,6 @@ class LineDetectorNode(DTROS):
             assert len(ckp_lines_all[i]) == len(
                 ckp_points_all[i]), f"CUR_{i} Lines:{len(ckp_lines_all[i])} Points: {len(ckp_points_all[i])}"
 
-        # Select the most perpendicular intersecting lines in priority of RY, RW
-        # Will go through the get_best_matching_points function to get the intersection points for affine transformation
-        # Set either the best_matching_lines or the best_matching_lines_orthogonal
-        # if len(cur_red_all_p) and len(ckp_red_all_p):
-        #     if len(cur_yellow_all_p) and len(ckp_yellow_all_p):
-        #         pass
-        #     elif len(cur_white_all_p) and len(ckp_white_all_p):
-        #         pass
-
         # Select a set of best matching lines in the priority of YWR
         if len(cur_yellow_all_p) and len(ckp_yellow_all_p):
             yellow_i, yellow_j = self.find_closest_subset(cur_yellow_all_p, ckp_yellow_all_p)
@@ -664,19 +753,49 @@ class LineDetectorNode(DTROS):
         elif len(cur_red_all_p) and len(ckp_red_all_p):
             red_i, red_j = self.find_closest_subset(cur_red_all_p, ckp_red_all_p)
             self.best_matching_lines_cv = (cur_red_all_l[red_i], ckp_red_all_l[red_j])
+        else:
+            self.best_matching_lines_cv = (None, None)
 
-        # Plot a debug image containing all the lines as well as the best matching lines
-        publisher = self.pub_d_vs_lines_all
-        if publisher.get_num_connections() > 0:
-            debug_image_msg = self.bridge.cv2_to_compressed_imgmsg(
-                self.debug_ground_lines(checkpoint=False, all=True))
-            publisher.publish(debug_image_msg)
+        # Select the most perpendicular intersecting lines in priority of RY, RW
+        # Will go through the get_best_matching_points function to get the intersection points for affine transformation
+        # Set either the best_matching_lines or the best_matching_lines_orthogonal
+        if len(cur_red_all_p) and len(ckp_red_all_p):
+            cur_red_lines, ckp_red_lines = cur_red_all_l, ckp_red_all_l
+            cur_red_points, ckp_red_points = cur_red_all_p, ckp_red_all_p
+            cur_other_lines, ckp_other_lines, color = None, None, None
+            cur_other_points, ckp_other_points = None, None
+            if len(cur_yellow_all_p) and len(ckp_yellow_all_p):
+                cur_other_lines, ckp_other_lines = cur_yellow_all_l, ckp_yellow_all_l
+                cur_other_points, ckp_other_points = cur_yellow_all_p, ckp_yellow_all_p
+                color = "yellow"
+            elif len(cur_white_all_p) and len(ckp_white_all_p):
+                cur_other_lines, ckp_other_lines = cur_white_all_l, ckp_white_all_l
+                cur_other_points, ckp_other_points = cur_white_all_p, ckp_white_all_p
+                color = "white"
+            if cur_other_lines is not None and ckp_other_lines is not None and color is not None:
+                cur_perp_lines_idx = self.filter_perpendicular_lines(cur_red_lines, cur_other_lines)
+                cur_perp_points = [(cur_red_points[i], cur_other_points[j]) for (i, j) in cur_perp_lines_idx]
+                ckp_perp_lines_idx = self.filter_perpendicular_lines(ckp_red_lines, ckp_other_lines)
+                cur_perp_lines = [(cur_red_lines[i], cur_other_lines[j]) for (i, j) in cur_perp_lines_idx]
+                ckp_perp_points = [[ckp_red_points[i], ckp_other_points[j]] for (i, j) in ckp_perp_lines_idx]
+                ckp_perp_lines = [[ckp_red_lines[i], ckp_other_lines[j]] for (i, j) in ckp_perp_lines_idx]
+                perp_i, perp_j = self.find_closest_subset_pair(cur_perp_points, ckp_perp_points)
+                kwargs = {"red_l_0": cur_perp_lines[perp_i][0], "red_l_1": ckp_perp_lines[perp_j][0],
+                          f"{color}_l_0": cur_perp_lines[perp_i][1], f"{color}_l_1": ckp_perp_lines[perp_j][1],
+                          "white_im_0": self.current_im_white, "white_im_1": self.checkpoint_im_white}
+            else:
+                kwargs = {"white_im_0": self.current_im_white, "white_im_1": self.checkpoint_im_white,
+                          "im_white_l_0": self.current_l_white, "im_white_l_1": self.checkpoint_l_white}
+        else:
+            kwargs = {"white_im_0": self.current_im_white, "white_im_1": self.checkpoint_im_white,
+                      "im_white_l_0": self.current_l_white, "im_white_l_1": self.checkpoint_l_white}
 
-        x = self.best_matching_lines_cv
-        if len(x) == 2 and len(x[0]) == 4 and len(x[1] == 4):
-            lines = (self.get_abc(*x[0]), self.get_abc(*x[1]))
-            self.H = self.compute_homography(lines, None)
-        print(f"H: {self.H}")
+        # Synchronous if red-white or red-yellow, asynchronous if only white
+        self.find_and_project_best_matching_points(**kwargs)
+        # other_line = other_lines[0]
+        # red_line = red_lines[0]
+        # theta = self.get_angle_between_lines(other_line, red_line)
+        # print(f"WR: {theta:.2f}")
 
     def set_lines_from_ground_coordinates(self, pixel_list_list, checkpoint=False):
         """
@@ -698,7 +817,7 @@ class LineDetectorNode(DTROS):
             if len(pixels) >= 2:
                 line_cv = [vx, vy, x, y] = cv2.fitLine(pixels, cv2.DIST_HUBER, 0, 0.01, 0.01)
                 lines_cv[i] = line_cv
-                color_line = self.get_abc(x, y, vx, vy)
+                color_line = self.get_abc(vx, vy, x, y)
                 lines[i] = color_line
 
         # If all three lines are detected, force them to be parallel/perpendicular
@@ -879,16 +998,34 @@ class LineDetectorNode(DTROS):
             coordinates_list_msg = self.pixels_to_pixel_list_msg(normalized_color_coordinates)
             pixel_list_msgs.append(coordinates_list_msg)
             all_coordinates.append(color_coordinates)
+
+            # For best matching point detection
+            if color == "WHITE":
+                im_white = cv2.inRange(im_hsv, color_range[color]["MIN"], color_range[color]["MAX"])
+                # im_white_edge = cv2.merge((im_edge, im_edge, im_edge))
+                # im_white_edge[normalized_color_coordinates[:, 1], normalized_color_coordinates[:, 0], :2] = 0
+                ret, thresh = cv2.threshold(im_white, 127, 255, 0)
+                contours, hierarchy = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+                im_contour_0 = cv2.drawContours(im_white, contours, -1, (0, 255, 0), 3)
+                white_line = cv2.fitLine(color_coordinates, cv2.DIST_HUBER, 0, 0.01, 0.01)
+                white_line = self.get_abc(*white_line)
+                if checkpoint:
+                    self.checkpoint_im_white = im_contour_0
+                    self.checkpoint_l_white = white_line
+                else:
+                    self.current_im_white = im_contour_0
+                    self.current_l_white = white_line
+
         msg = PixelListList()
         msg.pixel_lists = pixel_list_msgs
         publisher = self.pub_color_coordinates_checkpoint if checkpoint else self.pub_color_coordinates
         publisher.publish(msg)
         colors = ((255, 255, 255), (0, 255, 255), (0, 0, 255))
         pub_d_img = self.pub_d_color_coordinates_img_checkpoint if checkpoint else self.pub_d_color_coordinates_img
-        if pub_d_img.get_num_connections() > 0:
+        if pub_d_img.get_num_connections() > 0 or self.pub_d_vs_white_img.get_num_connections() > 0:
             debug_image = image.copy() * 0.2
             h, w = image.shape[:2]
-            dist_thres = 85
+            dist_thres = 85  # 85
             cv2.circle(debug_image, (80, 80), radius=5, color=(255, 105, 180), thickness=5)
             for i, color_coordinates in enumerate(all_coordinates):
                 # if i == 0:
@@ -905,6 +1042,12 @@ class LineDetectorNode(DTROS):
                     topy = int(min(filtered_coordinates[:, 1]))
                     topx = int((topy - y) * vx / vy + x)
                     cv2.line(debug_image, (bottomx, bottomy), (topx, topy), colors[i], thickness=2)
+                    if i == 0:
+                        contour_im = self.checkpoint_im_white if checkpoint else self.current_im_white
+                        cv2.line(contour_im, (bottomx, bottomy), (topx, topy), colors[i], thickness=2)
+                        debug_image_msg = self.bridge.cv2_to_compressed_imgmsg(contour_im)
+                        if self.pub_d_vs_white_img.get_num_connections() > 0:
+                            self.pub_d_vs_white_img.publish(debug_image_msg)
 
             debug_image_msg = self.bridge.cv2_to_compressed_imgmsg(debug_image)
             # debug_image_msg.header = image_msg.header
@@ -1108,13 +1251,22 @@ class LineDetectorNode(DTROS):
                         bottomx, bottomy, topx, topy = self.transform_bottom_top_xy(bottomx, bottomy, topx, topy)
                         cv2.line(image, (bottomy, bottomx), (topy, topx), colors_par[i], thickness=1)
 
+        colors = ((34, 139, 34), (0, 100, 0))
         x = self.best_matching_lines_cv
-        if len(x) == 2 and len(x[0]) == 4 and len(x[1]) == 4:
-            colors = ((34, 139, 34), (0, 100, 0))
+        if len(x) == 2 and x[0] is not None and len(x[0]) == 4 and x[1] is not None and len(x[1]) == 4:
             for i in range(2):
                 btxy = self.get_top_bottom_from_vx_vy(*x[i])
                 bottomx, bottomy, topx, topy = self.transform_bottom_top_xy(*btxy)
                 cv2.line(image, (bottomy, bottomx), (topy, topx), colors[i], thickness=2)
+        y = self.best_matching_points
+        if len(y) == 2 and y[0] is not None and len(y[0]) == 2 and y[1] is not None and len(y[1]) == 2:
+            p1, p2 = y[0], y[1]
+            a1 = int((p1[1] * -400) + 200)
+            b1 = int((p1[0] * -400) + 300)
+            # cv2.circle(image, (b1, a1), radius=50, color=colors[0], thickness=50)
+            a2 = int((p2[1] * -400) + 200)
+            b2 = int((p2[0] * -400) + 300)
+            # cv2.circle(image, (b2, a2), radius=50, color=colors[1], thickness=50)
         return image
 
     @staticmethod
