@@ -236,6 +236,8 @@ class LineDetectorNode(DTROS):
         self.checkpoint_ground_color_coordinates = []
         self.best_matching_lines_cv = [[], []]
         self.best_matching_points = [[], []]
+        self.current_perp_lines = [[], []]
+        self.checkpoint_perp_lines = [[], []]
         self.img_shape = None
         self.H = None
         self.debug_img_bg = None
@@ -466,7 +468,8 @@ class LineDetectorNode(DTROS):
             theta = atan(get_slope(l1)) - atan(get_slope(l0))
             rotation_M = R(theta)
             trans_M = np.identity(3)
-            if best_matching_points:
+            if best_matching_points and len(best_matching_points) == 2 and best_matching_points[0] is not None and \
+                    best_matching_points[1] is not None:
                 p0, p1 = best_matching_points
                 t = p1 - p0
                 trans_M = T(t)
@@ -780,8 +783,26 @@ class LineDetectorNode(DTROS):
                 ckp_perp_points = [[ckp_red_points[i], ckp_other_points[j]] for (i, j) in ckp_perp_lines_idx]
                 ckp_perp_lines = [[ckp_red_lines[i], ckp_other_lines[j]] for (i, j) in ckp_perp_lines_idx]
                 perp_i, perp_j = self.find_closest_subset_pair(cur_perp_points, ckp_perp_points)
-                kwargs = {"red_l_0": cur_perp_lines[perp_i][0], "red_l_1": ckp_perp_lines[perp_j][0],
-                          f"{color}_l_0": cur_perp_lines[perp_i][1], f"{color}_l_1": ckp_perp_lines[perp_j][1],
+                try:
+                    red_l_0 = cur_perp_lines[perp_i][0]
+                    red_l_1 = ckp_perp_lines[perp_j][0]
+                    other_l_0 = cur_perp_lines[perp_i][1]
+                    other_l_1 = cur_perp_lines[perp_j][1]
+                    self.current_perp_lines = (red_l_0, other_l_0)
+                    self.checkpoint_perp_lines = (red_l_1, other_l_1)
+                    red_l_0 = self.get_abc(*red_l_0)
+                    red_l_1 = self.get_abc(*red_l_1)
+                    other_l_0 = self.get_abc(*other_l_0)
+                    other_l_1 = self.get_abc(*other_l_1)
+                except IndexError:
+                    self.current_perp_lines = ([], [])
+                    self.checkpoint_perp_lines = ([], [])
+                    red_l_0 = None
+                    red_l_1 = None
+                    other_l_0 = None
+                    other_l_1 = None
+                kwargs = {"red_l_0": red_l_0, "red_l_1": red_l_1,
+                          f"{color}_l_0": other_l_0, f"{color}_l_1": other_l_1,
                           "white_im_0": self.current_im_white, "white_im_1": self.checkpoint_im_white}
             else:
                 kwargs = {"white_im_0": self.current_im_white, "white_im_1": self.checkpoint_im_white,
@@ -1259,14 +1280,23 @@ class LineDetectorNode(DTROS):
                 bottomx, bottomy, topx, topy = self.transform_bottom_top_xy(*btxy)
                 cv2.line(image, (bottomy, bottomx), (topy, topx), colors[i], thickness=2)
         y = self.best_matching_points
+        colors = ((255, 191, 0), (180, 130, 70))
         if len(y) == 2 and y[0] is not None and len(y[0]) == 2 and y[1] is not None and len(y[1]) == 2:
             p1, p2 = y[0], y[1]
             a1 = int((p1[1] * -400) + 200)
             b1 = int((p1[0] * -400) + 300)
-            # cv2.circle(image, (b1, a1), radius=50, color=colors[0], thickness=50)
+            cv2.circle(image, (a1, b1), radius=10, color=colors[0], thickness=10)
             a2 = int((p2[1] * -400) + 200)
             b2 = int((p2[0] * -400) + 300)
-            # cv2.circle(image, (b2, a2), radius=50, color=colors[1], thickness=50)
+            cv2.circle(image, (a2, b2), radius=10, color=colors[1], thickness=10)
+        a, b = self.current_perp_lines, self.checkpoint_perp_lines
+        if a is not None and len(a) == 2 and len(a[0]) == 4 and len(a[1]) == 4 and b is not None and len(b) == 2 and \
+                len(b[0]) == 4 and len(b[1]) == 4:
+            for i, c in enumerate([a, b]):
+                for j in range(2):
+                    btxy = self.get_top_bottom_from_vx_vy(*c[j])
+                    bottomx, bottomy, topx, topy = self.transform_bottom_top_xy(*btxy)
+                    cv2.line(image, (bottomy, bottomx), (topy, topx), colors[i], thickness=2)
         return image
 
     @staticmethod
