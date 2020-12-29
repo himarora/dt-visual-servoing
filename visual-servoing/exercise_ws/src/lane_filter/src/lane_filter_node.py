@@ -156,7 +156,7 @@ class LaneFilterNode(DTROS):
         self.left_encoder_ticks_delta = 0
         self.right_encoder_ticks_delta = 0
 
-        # self.publishEstimate()
+        self.publishEstimate()
         self.publishPose()
 
     def fsm_change(self, msg):
@@ -174,15 +174,15 @@ class LaneFilterNode(DTROS):
             segment_list_msg (:obj:`SegmentList`): message containing list of processed segments
 
         """
-        # self.last_update_stamp = segment_list_msg.header.stamp
+        self.last_update_stamp = segment_list_msg.header.stamp
 
         # Get actual timestamp for latency measurement
-        # timestamp_before_processing = rospy.Time.now()
+        timestamp_before_processing = rospy.Time.now()
 
         # Step 2: update
-        # self.filter.update(segment_list_msg.segments)
+        self.filter.update(segment_list_msg.segments)
 
-        # self.publishEstimate(segment_list_msg)
+        self.publishEstimate(segment_list_msg)
 
     def publishEstimate(self, segment_list_msg=None):
 

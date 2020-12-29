@@ -465,6 +465,7 @@ class LineDetectorNode(DTROS):
                                 [0, 1, t[1]],
                                 [0, 0, 1]], dtype='float')
         get_slope = lambda l: -l[0] / l[1]
+        no_tr_known = False
         if best_matching_lines is None and best_matching_points is None:
             return None
         elif best_matching_lines:
@@ -477,6 +478,8 @@ class LineDetectorNode(DTROS):
                 p0, p1 = best_matching_points
                 t = p1 - p0
                 trans_M = T(t)
+            else:
+                no_tr_known = True
         else:
             p0, p1 = best_matching_points
             if p0 is not None and len(p0) == 2 and p1 is not None and len(p1) == 2:
@@ -488,6 +491,8 @@ class LineDetectorNode(DTROS):
                 trans_M, rotation_M = None, None
         if trans_M is not None and rotation_M is not None:
             affine = trans_M @ rotation_M
+            if no_tr_known:
+                affine[0:2,2] = [None, None]
         else:
             affine = None
         return affine
@@ -888,7 +893,7 @@ class LineDetectorNode(DTROS):
         #     self.pub_homography.publish(homography_msg)
 
     @staticmethod
-    def group_points_together(filtered_pts, pt_group_dist_x=0.1, pt_group_dist_y=0.1, group_size_ignore=2):
+    def group_points_together(filtered_pts, pt_group_dist_x=0.2, pt_group_dist_y=0.2, group_size_ignore=2):
         filtered_pts = np.array(filtered_pts).tolist()
         list_of_pt_groups = []
         for curr_pt in filtered_pts:
