@@ -458,9 +458,9 @@ class LineDetectorNode(DTROS):
             lines = (self.get_abc(*x[0]), self.get_abc(*x[1]))
         else:
             lines = None
-        self.H = self.compute_homography(lines, self.best_matching_points)
-        print(f"H: {self.H}")
-        if self.H is not None:
+        if self.mode_vs:
+            self.H = self.compute_homography(lines, self.best_matching_points)
+            print(f"H: {self.H}")
             homography_msg = FloatList()
             homography_msg.H = list(np.array(self.H, dtype=np.float32).flatten())
             self.pub_homography.publish(homography_msg)
