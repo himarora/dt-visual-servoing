@@ -466,14 +466,10 @@ class LineDetectorNode(DTROS):
             self.pub_homography.publish(homography_msg)
             self.update_checkpoint_if_needed()
 
-    def update_checkpoint_if_needed(self, thres=0.2):
-        if not np.isnan(self.H).any():
-            norm = np.linalg.norm(np.abs(self.H - np.eye(3)))
-        else:
-            #norm = np.linalg.norm(np.abs(self.H[:2, :2] - np.eye(2)))
-            norm = thres*2      # We dont want to exit
-        print(f"Norm: {norm}")
-        if norm < thres:
+    def update_checkpoint_if_needed(self, thres=0.03):
+        if not((np.trace(self.H) - 3) > thres or \
+            np.linalg.norm(self.H[0:2,2]) > thres or \
+            any(np.isnan(self.H[0:2,2]))):
             if self.checkpoint_index is not None:
                 self.checkpoint_index += 1
             # Finished all the checkpoints, turn off visual servoing mode, but don't remove checkpoints from memory
