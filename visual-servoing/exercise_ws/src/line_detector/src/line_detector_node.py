@@ -811,7 +811,7 @@ class LineDetectorNode(DTROS):
         return theta * 57.296
 
     @staticmethod
-    def filter_perpendicular_lines(lines_color1, lines_color2, thres_angle=50.):
+    def filter_perpendicular_lines(lines_color1, lines_color2, thres_angle=40.):
         perpendicular_lines = []
         for i, lc1 in enumerate(lines_color1):
             for j, lc2 in enumerate(lines_color2):
