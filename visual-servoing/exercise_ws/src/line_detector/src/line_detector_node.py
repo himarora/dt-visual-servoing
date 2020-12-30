@@ -65,6 +65,7 @@ class LineDetectorNode(DTROS):
         self._colors = rospy.get_param('~colors', None)
         self._img_size = rospy.get_param('~img_size', None)
         self._top_cutoff = rospy.get_param('~top_cutoff', None)
+        self.checkpoints_dir = rospy.get_param('~checkpoints_path', None)
 
         self.bridge = CvBridge()
 
@@ -257,6 +258,31 @@ class LineDetectorNode(DTROS):
             1. / self._img_size[1],
             1. / self._img_size[0]
         ])
+
+        if self.checkpoints_dir is not None and self.checkpoints_dir != "None":
+            self.load_checkpoints_from_disk()
+
+    def load_checkpoints_from_disk(self):
+        files = os.listdir(self.checkpoints_dir)
+        if not len(files):
+            print(f"Failed to load checkpoints from disk. Directory {self.checkpoints_dir} is empty!")
+            return
+        if len(files) % 2 != 0:
+            print(f"Number of files should be even {self.checkpoints_dir}")
+            return
+        n_checkpoints = len(files) // 2
+        checkpoints, edges = [], []
+        for i in range(n_checkpoints):
+            img_f = os.path.join(self.checkpoints_dir, f"{i}_img.png")
+            img = cv2.imread(img_f)
+            edge_f = os.path.join(self.checkpoints_dir, f"{i}_edges.png")
+            edge = cv2.imread(edge_f)
+            edge = cv2.cvtColor(edge, cv2.COLOR_RGB2GRAY)
+            checkpoints.append(img)
+            edges.append(edge)
+        self.checkpoint_images = checkpoints
+        self.checkpoint_edges = edges
+        print(f"Loaded {n_checkpoints} checkpoints from {self.checkpoints_dir}. Run visual servoing script to start.")
 
     def init_checkpoint_state_variables(self):
         self.checkpoint_image = None
