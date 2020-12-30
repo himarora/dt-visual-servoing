@@ -893,7 +893,7 @@ class LineDetectorNode(DTROS):
         #     self.pub_homography.publish(homography_msg)
 
     @staticmethod
-    def group_points_together(filtered_pts, pt_group_dist_x=0.2, pt_group_dist_y=0.2, group_size_ignore=2):
+    def group_points_together(filtered_pts, pt_group_dist_x=0.1, pt_group_dist_y=0.1, group_size_ignore=3):
         filtered_pts = np.array(filtered_pts).tolist()
         list_of_pt_groups = []
         for curr_pt in filtered_pts:
@@ -939,9 +939,13 @@ class LineDetectorNode(DTROS):
             list_of_pt_groups.append(new_group)
 
         # Get rid of groups that are too small as they are untrustworthy
+        rmv_groups = []
         for group in list_of_pt_groups:
             if len(group) < group_size_ignore:
-                list_of_pt_groups.remove(group)
+                rmv_groups.append(group)
+
+        for group in rmv_groups:
+            list_of_pt_groups.remove(group)
 
         return list_of_pt_groups
 

@@ -1,14 +1,15 @@
 #lane_control/lane_controller_node
 
-min_r: 0.01 
+min_r: 0.0001
 max_r: 0.03
-dt_path: 0.01
-max_dist_fact: 1.2
-min_dist: 0.1      # Minimum distance error to correct
+dt_path: 0.1
+max_dist_fact: 1.4
+min_dist: 0.05      # Minimum distance error to correct
 min_angle: 0.2      # Minimum angle error to correct
 num_dt: 5           # Number of time steps to split up a rotation only turn
-
+homog_tol: 0.025
+plan_min_exec_time: 0.1
 
 # Define input gains
-k_v: 30.0
-k_omega: 1.0
+k_v: 4.0
+k_omega: 4.0

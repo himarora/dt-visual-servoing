@@ -43,27 +43,23 @@ class LanePlanner:
         # Get pose in [y, x, theta] form
         x_curr = [0.0, 0.0, 0.0]           # Default position of the bot in the projected frame
         x_targ = self.homog_decompose(homog_mat)
-        print(x_targ)
-        #x_targ = [0.0, .0, 0.0]
 
         dist_min = np.sqrt((x_curr[0]-x_targ[0])**2 + (x_curr[1]-x_targ[1])**2)
         dist_max = max_dist_fact*dist_min
 
-        print(dist_min)
         # If travel distance decent, use dubins path
         if dist_min > min_dist:
+            print("getting path")
             con = {'type': 'ineq', 'fun': self.cons_fun, 'args': (x_curr, x_targ, dt, dist_max)}
             res = sciopt.minimize(self.opt_rad, min_r, args=(x_curr, x_targ, dt), bounds=bnds, constraints=con)
             max_r_opt = res.x
-            #max_r = min_r
 
             path, u, dist = self.gen_path(x_curr, x_targ, max_r_opt, dt)
-            print("path")
-            print(path)
+            print(x_targ)
         elif abs(x_targ[2] - x_curr[2]) > min_angle:
             # If we only want to turn
             # Accomplish turn in 10 time steps
-            
+            print("turn only")
             u = np.zeros([2, num_dt])
             u[1,:] = (x_targ[2] - x_curr[2])/(num_dt*dt*10)
             dist = dist_min
@@ -72,19 +68,18 @@ class LanePlanner:
             if isnan(dist_min):
                 u[0,:] = dt
             path = None
-        elif isnan(dist_min):
-            # Finally check if we should just drive straight
-            u = np.zeros([2, num_dt])
-            u[0,:] = dt
-            path = None
-            dist = dist_min
+        #elif isnan(dist_min):
+        #    # Finally check if we should just drive straight
+        #    print("just drive straight")
+        #    u = np.zeros([2, num_dt])
+        #    u[0,:] = dt
+        #    path = None
+        #    dist = dist_min
         else:
+            print("hard setting zeros")
             path = None
             u = None
             dist = dist_min
-        
-        print("theta err: " + str(x_targ[2] - x_curr[2]))
-        print(u)
 
         return path, u, dist
 

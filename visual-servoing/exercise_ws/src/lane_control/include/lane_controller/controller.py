@@ -46,7 +46,7 @@ class LaneController:
         Returns:
             
         """
-        dt = self.params['~dt_path']*10
+        dt = self.params['~dt_path']
         idx = math.floor(time_elapsed/dt)
 
         if idx >= u.shape[1]:

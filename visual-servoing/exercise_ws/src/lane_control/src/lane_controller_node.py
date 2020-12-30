@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import numpy as np
+from math import isnan
 import rospy
 import os
 
@@ -64,6 +65,9 @@ class LaneControllerNode(DTROS):
         self.params['~num_dt'] = rospy.get_param('~num_dt', None)
         self.params['~k_v'] = rospy.get_param('~k_v', None)
         self.params['~k_omega'] = rospy.get_param('~k_omega', None)
+        self.params['~homog_tol'] = rospy.get_param('~homog_tol', None)
+        self.params['~plan_min_exec_time'] = rospy.get_param('~plan_min_exec_time', None)
+        
 
         # Need to create controller object before updating parameters, otherwise it will fail
         self.controller = LaneController(self.params)
@@ -73,7 +77,6 @@ class LaneControllerNode(DTROS):
         # Initialize variables
         self.path_dist = None
         self.u = None
-        self.u_count = 0
         self.fsm_state = None
         self.wheels_cmd_executed = WheelsCmdStamped()
         self.pose_msg = LanePose()
@@ -160,7 +163,6 @@ class LaneControllerNode(DTROS):
         self.at_obstacle_stop_line = msg.at_stop_line
 
     def cbMode(self, fsm_state_msg):
-        print("am here hello")
         self.fsm_state = fsm_state_msg.state  # String of current FSM state
 
         if self.fsm_state == 'INTERSECTION_CONTROL':
@@ -206,13 +208,21 @@ class LaneControllerNode(DTROS):
     def updatePath(self, homog_msg):
         if homog_msg.H is not None:
             homog_mat = np.array(homog_msg.H).reshape(3,3)
-            print("path updating")
+            # Check if we are already very close to identity
+            if (np.trace(homog_mat) - 3) > self.params['~homog_tol'] or \
+                np.linalg.norm(homog_mat[0:2,2]) > self.params['~homog_tol'] or \
+                any(np.isnan(homog_mat[0:2,2])) and \
+                rospy.Time.now().to_sec() - self.last_s > self.params['~plan_min_exec_time']:
 
-            path, u, dist = self.planner.get_new_path(homog_mat)
-            self.path_dist = dist
-            self.u = u
-            self.u_count = 0
-            self.last_s = rospy.Time.now().to_sec()
+                print("path updating")
+
+                path, u, dist = self.planner.get_new_path(homog_mat)
+                self.path_dist = dist
+                self.u = u
+                self.last_s = rospy.Time.now().to_sec()
+            else:
+                self.path_dist = 0
+                self.u = None
 
     def getControlAction(self, pose_msg):
         """Callback that receives a pose message and updates the related control command.
@@ -226,22 +236,12 @@ class LaneControllerNode(DTROS):
         dt = None
         if self.last_s is not None:
             dt = (current_s - self.last_s)
-
         if self.at_stop_line or self.at_obstacle_stop_line:
-            print("at stop line")
             v = 0
             omega = 0
         elif self.u is not None:
-            #if self.u is not None and dt < 5.0:
-            print("computing controller action")
-            #dt = 0.1
             v, omega = self.controller.compute_control_action(self.u, self.path_dist, dt)
-            #elif self.u is None or dt > 5.0:
-            #    print("ran out of time > 5.0")
-            #    v = 0.0
-            #    omega = 0.0
         else:
-            print("u is None")
             v = 0.0
             omega = 0.0
 
@@ -250,9 +250,9 @@ class LaneControllerNode(DTROS):
         car_control_msg.header = pose_msg.header
 
         # Add commands to car message
-        omega = -omega          # For some reason the convention is flipped for control input
-        print("v raw: " + str(v))
-        print("omega raw: " + str(omega))
+        #omega = -omega          # For some reason the convention is flipped for control input
+        print("v: " + str(self.params['~k_v']*v))
+        print("omega: " + str(self.params['~k_omega']*omega))
         car_control_msg.v = self.params['~k_v']*v
         car_control_msg.omega = self.params['~k_omega']*omega
 
