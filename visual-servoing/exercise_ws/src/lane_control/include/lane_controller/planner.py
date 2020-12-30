@@ -43,6 +43,7 @@ class LanePlanner:
         # Get pose in [y, x, theta] form
         x_curr = [0.0, 0.0, 0.0]           # Default position of the bot in the projected frame
         x_targ = self.homog_decompose(homog_mat)
+        x_targ[2] = -x_targ[2]              # Flip theta since its measured curr - targ
 
         dist_min = np.sqrt((x_curr[0]-x_targ[0])**2 + (x_curr[1]-x_targ[1])**2)
         dist_max = max_dist_fact*dist_min
@@ -55,13 +56,20 @@ class LanePlanner:
             max_r_opt = res.x
 
             path, u, dist = self.gen_path(x_curr, x_targ, max_r_opt, dt)
+            #u[1,:] = -u[1,:]
+            print("")
+            print("planned path")
+            print(path)
+            print("planned input")
+            print(u)
             print(x_targ)
+            print("")
         elif abs(x_targ[2] - x_curr[2]) > min_angle:
             # If we only want to turn
             # Accomplish turn in 10 time steps
             print("turn only")
             u = np.zeros([2, num_dt])
-            u[1,:] = (x_targ[2] - x_curr[2])/(num_dt*dt*10)
+            u[1,:] = (x_curr[2] + x_targ[2])/(num_dt*dt)        # Plus here since we already flipped -targ above
             dist = dist_min
 
             # Now add constant forward velocity if no dist info available, meaning we cant see red line

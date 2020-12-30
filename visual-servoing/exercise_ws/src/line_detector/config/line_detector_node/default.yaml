@@ -1,4 +1,4 @@
-img_size: [140,160]
+img_size: [110,150]
 top_cutoff: 50
 
 colors:

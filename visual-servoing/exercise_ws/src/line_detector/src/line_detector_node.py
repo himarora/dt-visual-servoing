@@ -468,7 +468,7 @@ class LineDetectorNode(DTROS):
             self.pub_homography.publish(homography_msg)
             self.update_checkpoint_if_needed()
 
-    def update_checkpoint_if_needed(self, thres=0.03):
+    def update_checkpoint_if_needed(self, thres=0.02):
         if not((np.trace(self.H) - 3) > thres or \
             np.linalg.norm(self.H[0:2,2]) > thres or \
             any(np.isnan(self.H[0:2,2]))):
@@ -979,7 +979,7 @@ class LineDetectorNode(DTROS):
         #     self.pub_homography.publish(homography_msg)
 
     @staticmethod
-    def group_points_together(filtered_pts, pt_group_dist_x=0.1, pt_group_dist_y=0.1, group_size_ignore=5):
+    def group_points_together(filtered_pts, pt_group_dist_x=0.15, pt_group_dist_y=0.15, group_size_ignore=4):
         filtered_pts = np.array(filtered_pts).tolist()
         list_of_pt_groups = []
         for curr_pt in filtered_pts:
