@@ -220,31 +220,28 @@ class LineDetectorNode(DTROS):
 
         self.sub_key_press = rospy.Subscriber("/agent/line_detector_node/key_pressed", String, self.cb_key_pressed,
                                               queue_size=1)
-        self.checkpoint_image = None
+
+        self.sub_start_vs = rospy.Subscriber("/agent/line_detector_node/start_vs", String, self.cb_start_vs,
+                                             queue_size=1)
+
+        # Current state variables
         self.current_image = None
         self.current_lines = [[None] * 3, [None] * 3, [None] * 3]  # WYR
-        self.checkpoint_lines = [[None] * 3, [None] * 3, [None] * 3]  # WYR
         self.current_lines_cv = [[None] * 4, [None] * 4, [None] * 4]  # WYR
-        self.checkpoint_lines_cv = [[None] * 4, [None] * 4, [None] * 4]  # WYR
         self.current_lines_par = [[None] * 3, [None] * 3, [None] * 3]  # WYR
-        self.checkpoint_lines_par = [[None] * 3, [None] * 3, [None] * 3]  # WYR
         self.current_lines_cv_all = [[], [], []]
-        self.checkpoint_lines_cv_all = [[], [], []]
-        self.checkpoint_points_cv_all = [[], [], []]
         self.current_points_cv_all = [[], [], []]
         self.current_ground_color_coordinates = []
-        self.checkpoint_ground_color_coordinates = []
-        self.best_matching_lines_cv = [[], []]
-        self.best_matching_points = [[], []]
         self.current_perp_lines = [[], []]
-        self.checkpoint_perp_lines = [[], []]
-        self.img_shape = None
-        self.H = None
-        self.debug_img_bg = None
         self.current_im_white = None
-        self.checkpoint_im_white = None
         self.current_l_white = None
-        self.checkpoint_l_white = None
+
+        # Checkpoint state variables
+        self.init_checkpoint_state_variables()
+
+        self.img_shape = None
+        self.debug_img_bg = None
+        self.mode_vs = False  # Checkpoint collection or visual servoing mode?
 
         self.arr_cutoff = np.array([
             self._top_cutoff, self._top_cutoff
@@ -253,6 +250,23 @@ class LineDetectorNode(DTROS):
             1. / self._img_size[1],
             1. / self._img_size[0]
         ])
+
+    def init_checkpoint_state_variables(self):
+        self.checkpoint_image = None
+        self.checkpoint_lines = [[None] * 3, [None] * 3, [None] * 3]  # WYR
+        self.checkpoint_lines_cv = [[None] * 4, [None] * 4, [None] * 4]  # WYR
+        self.checkpoint_lines_par = [[None] * 3, [None] * 3, [None] * 3]  # WYR
+        self.checkpoint_lines_cv_all = [[], [], []]
+        self.checkpoint_points_cv_all = [[], [], []]
+        self.checkpoint_ground_color_coordinates = []
+        self.best_matching_lines_cv = [[], []]
+        self.best_matching_points = [[], []]
+        self.checkpoint_perp_lines = [[], []]
+        self.checkpoint_im_white = None
+        self.checkpoint_l_white = None
+        self.checkpoint_images = []
+        self.checkpoint_index = None
+        self.H = None
 
     def thresholds_cb(self, thresh_msg):
         self.anti_instagram_thresholds["lower"] = thresh_msg.low
@@ -282,15 +296,40 @@ class LineDetectorNode(DTROS):
         image = image[self._top_cutoff:, :, :]
         return image
 
-    def cb_key_pressed(self, msg):
+    def cb_key_pressed(self, msg, ckp_monitor=False):
         """
         Saves checkpoint image and calls the method to extract color coordinates
         :param msg: Dummy message
         :return: None
         """
-        print("Saved checkpoint")
-        self.checkpoint_image = self.current_image
-        self.publish_color_coordinates(self.checkpoint_image, checkpoint=True)
+        if self.mode_vs:
+            if ckp_monitor:  # Crossed a checkpoint, set the image as new checkpoint
+                self.checkpoint_image = self.checkpoint_images[self.checkpoint_index]
+                self.publish_color_coordinates(self.checkpoint_image, checkpoint=True)
+                print(f"MOVED TO CHECKPOINT {self.checkpoint_index}")
+                return
+            else:  # Called by script, restart checkpoint collection mode
+                self.mode_vs = False
+                self.init_checkpoint_state_variables()
+                self.checkpoint_images = [self.current_image]
+                print("Restarted Checkpoint Collection")
+                print(f"Saved checkpoint. Total checkpoints: {len(self.checkpoint_images)}")
+        else:  # If in checkpoint collection mode, save the image as a future checkpoint
+            self.checkpoint_index = None  # No checkpoint should be active in checkpoint collection mode
+            self.checkpoint_images.append(self.current_image)
+            print(f"Saved checkpoint. Total checkpoints: {len(self.checkpoint_images)}")
+
+    def cb_start_vs(self, msg):
+        if self.mode_vs:
+            print("Already in visual servoing mode!")
+        else:
+            if len(self.checkpoint_images) == 0:
+                print("Save a checkpoint first!")
+            else:
+                assert not self.checkpoint_index, "Checkpoint index is not None in checkpoint collection mode"
+                self.mode_vs = True
+                self.checkpoint_index = 0  # We have at least one checkpoint image
+                self.cb_key_pressed(None, True)
 
     @staticmethod
     def get_abc(vx, vy, x, y):
@@ -399,6 +438,19 @@ class LineDetectorNode(DTROS):
             homography_msg = FloatList()
             homography_msg.H = list(np.array(self.H, dtype=np.float32).flatten())
             self.pub_homography.publish(homography_msg)
+            self.update_checkpoint_if_needed()
+
+    def update_checkpoint_if_needed(self, thres=0.2):
+        norm = np.linalg.norm(np.abs(self.H - np.eye(3)))
+        if norm < thres:
+            self.checkpoint_index += 1
+            # Finished all the checkpoints, turn of visual servoing mode, but don't remove checkpoints from memory
+            if self.checkpoint_index == len(self.checkpoint_images):
+                self.mode_vs = False
+                self.checkpoint_index = None
+                print("REACHED THE END. Run visual servoing script again to start from the first checkpoint!")
+            else:
+                self.cb_key_pressed(None, True)
 
     def find_and_project_best_matching_points(self, red_l_0=None, red_l_1=None,
                                               white_l_0=None, white_l_1=None,
@@ -469,7 +521,7 @@ class LineDetectorNode(DTROS):
             return None
         elif best_matching_lines:
             l0, l1 = best_matching_lines
-            theta = atan(get_slope(l1)) - atan(get_slope(l0))
+            theta = -(atan(get_slope(l1)) - atan(get_slope(l0)))
             rotation_M = R(theta)
             trans_M = np.identity(3)
             if best_matching_points and len(best_matching_points) == 2 and best_matching_points[0] is not None and \
@@ -477,6 +529,9 @@ class LineDetectorNode(DTROS):
                 p0, p1 = best_matching_points
                 t = p1 - p0
                 trans_M = T(t)
+                print("Matching Points")
+            else:
+                print("Matching Lines")
         else:
             p0, p1 = best_matching_points
             if p0 is not None and len(p0) == 2 and p1 is not None and len(p1) == 2:
@@ -484,6 +539,7 @@ class LineDetectorNode(DTROS):
                 t = p1 - p0
                 trans_M = T(t)
                 rotation_M = np.identity(3)
+                print("Matching Points")
             else:
                 trans_M, rotation_M = None, None
         if trans_M is not None and rotation_M is not None:
