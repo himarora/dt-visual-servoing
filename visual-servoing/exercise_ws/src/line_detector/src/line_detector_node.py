@@ -1375,31 +1375,32 @@ class LineDetectorNode(DTROS):
                         bottomx, bottomy, topx, topy = self.transform_bottom_top_xy(bottomx, bottomy, topx, topy)
                         cv2.line(image, (bottomy, bottomx), (topy, topx), colors_par[i], thickness=1)
 
-        colors = ((34, 139, 34), (0, 100, 0))
-        x = self.best_matching_lines_cv
-        if len(x) == 2 and x[0] is not None and len(x[0]) == 4 and x[1] is not None and len(x[1]) == 4:
-            for i in range(2):
-                btxy = self.get_top_bottom_from_vx_vy(*x[i])
-                bottomx, bottomy, topx, topy = self.transform_bottom_top_xy(*btxy)
-                cv2.line(image, (bottomy, bottomx), (topy, topx), colors[i], thickness=2)
-        y = self.best_matching_points
-        colors = ((255, 191, 0), (180, 130, 70))
-        if len(y) == 2 and y[0] is not None and len(y[0]) == 2 and y[1] is not None and len(y[1]) == 2:
-            p1, p2 = y[0], y[1]
-            a1 = int((p1[1] * -400) + 200)
-            b1 = int((p1[0] * -400) + 300)
-            cv2.circle(image, (a1, b1), radius=10, color=colors[0], thickness=10)
-            a2 = int((p2[1] * -400) + 200)
-            b2 = int((p2[0] * -400) + 300)
-            cv2.circle(image, (a2, b2), radius=10, color=colors[1], thickness=10)
-        a, b = self.current_perp_lines, self.checkpoint_perp_lines
-        if a is not None and len(a) == 2 and len(a[0]) == 4 and len(a[1]) == 4 and b is not None and len(b) == 2 and \
-                len(b[0]) == 4 and len(b[1]) == 4:
-            for i, c in enumerate([a, b]):
-                for j in range(2):
-                    btxy = self.get_top_bottom_from_vx_vy(*c[j])
+        if self.mode_vs:
+            colors = ((34, 139, 34), (0, 100, 0))
+            x = self.best_matching_lines_cv
+            if len(x) == 2 and x[0] is not None and len(x[0]) == 4 and x[1] is not None and len(x[1]) == 4:
+                for i in range(2):
+                    btxy = self.get_top_bottom_from_vx_vy(*x[i])
                     bottomx, bottomy, topx, topy = self.transform_bottom_top_xy(*btxy)
                     cv2.line(image, (bottomy, bottomx), (topy, topx), colors[i], thickness=2)
+            y = self.best_matching_points
+            colors = ((255, 191, 0), (180, 130, 70))
+            if len(y) == 2 and y[0] is not None and len(y[0]) == 2 and y[1] is not None and len(y[1]) == 2:
+                p1, p2 = y[0], y[1]
+                a1 = int((p1[1] * -400) + 200)
+                b1 = int((p1[0] * -400) + 300)
+                cv2.circle(image, (a1, b1), radius=10, color=colors[0], thickness=10)
+                a2 = int((p2[1] * -400) + 200)
+                b2 = int((p2[0] * -400) + 300)
+                cv2.circle(image, (a2, b2), radius=10, color=colors[1], thickness=10)
+            a, b = self.current_perp_lines, self.checkpoint_perp_lines
+            if a is not None and len(a) == 2 and len(a[0]) == 4 and len(a[1]) == 4 and b is not None and len(b) == 2 and \
+                    len(b[0]) == 4 and len(b[1]) == 4:
+                for i, c in enumerate([a, b]):
+                    for j in range(2):
+                        btxy = self.get_top_bottom_from_vx_vy(*c[j])
+                        bottomx, bottomy, topx, topy = self.transform_bottom_top_xy(*btxy)
+                        cv2.line(image, (bottomy, bottomx), (topy, topx), colors[i], thickness=2)
         return image
 
     @staticmethod
