@@ -354,7 +354,9 @@ class LineDetectorNode(DTROS):
         save_path = f"/code/exercise_ws/checkpoints/{dir_name}"
         os.makedirs(save_path, exist_ok=True)
         for i, image in enumerate(self.checkpoint_images):
-            cv2.imwrite(f"{save_path}/{i}.png", image)
+            cv2.imwrite(f"{save_path}/{i}_img.png", image)
+        for i, image in enumerate(self.checkpoint_edges):
+            cv2.imwrite(f"{save_path}/{i}_edges.png", image)
         print(f"Saved {len(self.checkpoint_images)} checkpoint images to {save_path}")
 
     @staticmethod
