@@ -84,10 +84,11 @@ class LanePlanner:
             path = None
             dist = dist_min
         else:
-            print("hard setting zeros")
+            # If we get here, we are confused and should just continue the previous plan
+            print("continuing previous path")
             path = None
             u = None
-            dist = dist_min
+            dist = None
 
         return path, u, dist
 

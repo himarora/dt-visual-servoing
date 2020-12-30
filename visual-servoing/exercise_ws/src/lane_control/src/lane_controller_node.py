@@ -91,6 +91,7 @@ class LaneControllerNode(DTROS):
         self.obstacle_stop_line_distance = None
         self.obstacle_stop_line_detected = False
         self.at_obstacle_stop_line = False
+        self.homog_pub = False
 
         self.current_pose_source = 'lane_filter'
 
@@ -207,6 +208,8 @@ class LaneControllerNode(DTROS):
 
     def updatePath(self, homog_msg):
         if homog_msg.H is not None:
+            self.homog_pub = True
+            print(homog_msg.H)
             homog_mat = np.array(homog_msg.H).reshape(3,3)
             # Check if we are already very close to identity
             if (np.trace(homog_mat) - 3) > self.params['~homog_tol'] or \
@@ -217,12 +220,16 @@ class LaneControllerNode(DTROS):
                 print("path updating")
 
                 path, u, dist = self.planner.get_new_path(homog_mat)
-                self.path_dist = dist
-                self.u = u
-                self.last_s = rospy.Time.now().to_sec()
+                # If we get all none then we have no new plan
+                if not(path == None and u == None and dist == None):
+                    self.path_dist = dist
+                    self.u = u
+                    self.last_s = rospy.Time.now().to_sec()
             else:
                 self.path_dist = 0
                 self.u = None
+        else:
+            self.homog_pub = False
 
     def getControlAction(self, pose_msg):
         """Callback that receives a pose message and updates the related control command.
@@ -241,6 +248,10 @@ class LaneControllerNode(DTROS):
             omega = 0
         elif self.u is not None:
             v, omega = self.controller.compute_control_action(self.u, self.path_dist, dt)
+        elif self.homog_pub:
+            # If we're getting homographies but u is none, just slowly drive forward
+            v = 0.2
+            omega = 0.0
         else:
             v = 0.0
             omega = 0.0
