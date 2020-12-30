@@ -332,7 +332,7 @@ class LineDetectorNode(DTROS):
             current_edge = self.current_edges.copy()
             self.checkpoint_images.append(current_image)
             self.checkpoint_edges.append(current_edge)
-            print(f"Saved checkpoint {id(current_image)}. Total checkpoints: {len(self.checkpoint_images)}")
+            print(f"Saved checkpoint with ID {id(current_image)}. Total checkpoints: {len(self.checkpoint_images)}")
 
     def cb_start_vs(self, msg):
         if self.mode_vs:
@@ -474,11 +474,13 @@ class LineDetectorNode(DTROS):
             norm = thres*2      # We dont want to exit
         print(f"Norm: {norm}")
         if norm < thres:
-            self.checkpoint_index += 1
-            # Finished all the checkpoints, turn of visual servoing mode, but don't remove checkpoints from memory
+            if self.checkpoint_index is not None:
+                self.checkpoint_index += 1
+            # Finished all the checkpoints, turn off visual servoing mode, but don't remove checkpoints from memory
             if self.checkpoint_index == len(self.checkpoint_images):
                 self.mode_vs = False
                 self.checkpoint_index = None
+                self.H = None
                 print("REACHED THE END. Run visual servoing script again to start from the first checkpoint!")
             else:
                 self.cb_key_pressed(None, True)
@@ -979,7 +981,7 @@ class LineDetectorNode(DTROS):
         #     self.pub_homography.publish(homography_msg)
 
     @staticmethod
-    def group_points_together(filtered_pts, pt_group_dist_x=0.1, pt_group_dist_y=0.1, group_size_ignore=3):
+    def group_points_together(filtered_pts, pt_group_dist_x=0.1, pt_group_dist_y=0.1, group_size_ignore=5):
         filtered_pts = np.array(filtered_pts).tolist()
         list_of_pt_groups = []
         for curr_pt in filtered_pts:
