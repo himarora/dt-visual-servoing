@@ -465,7 +465,7 @@ class LineDetectorNode(DTROS):
             self.pub_homography.publish(homography_msg)
             self.update_checkpoint_if_needed()
 
-    def update_checkpoint_if_needed(self, thres=-1):
+    def update_checkpoint_if_needed(self, thres=0.2):
         if not np.isnan(self.H).any():
             norm = np.linalg.norm(np.abs(self.H - np.eye(3)))
         else:
@@ -852,7 +852,6 @@ class LineDetectorNode(DTROS):
         else:
             self.best_matching_lines_cv = (None, None)
 
-        red_l_0, red_l_1 = None, None
         # Select the most perpendicular intersecting lines in priority of RY, RW
         # Will go through the get_best_matching_points function to get the intersection points for affine transformation
         # Set either the best_matching_lines or the best_matching_lines_orthogonal
