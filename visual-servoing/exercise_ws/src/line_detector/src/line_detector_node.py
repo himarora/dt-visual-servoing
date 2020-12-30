@@ -3,6 +3,8 @@
 import numpy as np
 from math import atan
 import cv2
+import os
+import time
 import rospy
 from cv_bridge import CvBridge
 from sensor_msgs.msg import CompressedImage, Image
@@ -224,6 +226,10 @@ class LineDetectorNode(DTROS):
         self.sub_start_vs = rospy.Subscriber("/agent/line_detector_node/start_vs", String, self.cb_start_vs,
                                              queue_size=1)
 
+        self.sub_checkpoints_to_disk = rospy.Subscriber("/agent/line_detector_node/checkpoints_to_disk", String,
+                                                        self.cb_checkpoints_to_disk,
+                                                        queue_size=1)
+
         # Current state variables
         self.current_image = None
         self.current_lines = [[None] * 3, [None] * 3, [None] * 3]  # WYR
@@ -330,6 +336,17 @@ class LineDetectorNode(DTROS):
                 self.mode_vs = True
                 self.checkpoint_index = 0  # We have at least one checkpoint image
                 self.cb_key_pressed(None, True)
+
+    def cb_checkpoints_to_disk(self, msg):
+        if not len(self.checkpoint_images):
+            print("Collect a checkpoint before saving to disk!")
+            return
+        dir_name = time.strftime("%m%d-%H%M%S")
+        save_path = f"/code/exercise_ws/checkpoints/{dir_name}"
+        os.makedirs(save_path, exist_ok=True)
+        for i, image in enumerate(self.checkpoint_images):
+            cv2.imwrite(f"{save_path}/{i}.png", image)
+        print(f"Saved {len(self.checkpoint_images)} checkpoint images to {save_path}")
 
     @staticmethod
     def get_abc(vx, vy, x, y):
