@@ -441,7 +441,11 @@ class LineDetectorNode(DTROS):
             self.update_checkpoint_if_needed()
 
     def update_checkpoint_if_needed(self, thres=0.2):
-        norm = np.linalg.norm(np.abs(self.H - np.eye(3)))
+        if not np.isnan(self.H).any():
+            norm = np.linalg.norm(np.abs(self.H - np.eye(3)))
+        else:
+            norm = np.linalg.norm(np.abs(self.H[:2, :2] - np.eye(2)))
+        print(f"Norm: {norm}")
         if norm < thres:
             self.checkpoint_index += 1
             # Finished all the checkpoints, turn of visual servoing mode, but don't remove checkpoints from memory
