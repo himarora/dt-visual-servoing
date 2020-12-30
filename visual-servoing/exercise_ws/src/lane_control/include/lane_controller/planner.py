@@ -75,19 +75,19 @@ class LanePlanner:
             # Now add constant forward velocity if no dist info available, meaning we cant see red line
             if isnan(dist_min):
                 u[0,:] = dt
-            path = None
+            path = np.array([None, None])
         elif isnan(dist_min):
             # Finally check if we should just drive straight
             print("just drive straight")
             u = np.zeros([2, num_dt])
             u[0,:] = dt/2
-            path = None
+            path = np.array([None, None])
             dist = dist_min
         else:
             # If we get here, we are confused and should just continue the previous plan
             print("continuing previous path")
-            path = None
-            u = None
+            path = np.array([None, None])
+            u = np.array([None, None])
             dist = None
 
         return path, u, dist

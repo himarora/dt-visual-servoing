@@ -469,19 +469,20 @@ class LineDetectorNode(DTROS):
             self.update_checkpoint_if_needed()
 
     def update_checkpoint_if_needed(self, thres=0.02):
-        if not((np.trace(self.H) - 3) > thres or \
-            np.linalg.norm(self.H[0:2,2]) > thres or \
-            any(np.isnan(self.H[0:2,2]))):
-            if self.checkpoint_index is not None:
-                self.checkpoint_index += 1
-            # Finished all the checkpoints, turn off visual servoing mode, but don't remove checkpoints from memory
-            if self.checkpoint_index == len(self.checkpoint_images):
-                self.mode_vs = False
-                self.checkpoint_index = None
-                self.H = None
-                print("REACHED THE END. Run visual servoing script again to start from the first checkpoint!")
-            else:
-                self.cb_key_pressed(None, True)
+        if self.H is not None:
+            if not((np.trace(self.H) - 3) > thres or \
+                np.linalg.norm(self.H[0:2,2]) > thres or \
+                any(np.isnan(self.H[0:2,2]))):
+                if self.checkpoint_index is not None:
+                    self.checkpoint_index += 1
+                # Finished all the checkpoints, turn off visual servoing mode, but don't remove checkpoints from memory
+                if self.checkpoint_index == len(self.checkpoint_images):
+                    self.mode_vs = False
+                    self.checkpoint_index = None
+                    self.H = None
+                    print("REACHED THE END. Run visual servoing script again to start from the first checkpoint!")
+                else:
+                    self.cb_key_pressed(None, True)
 
     def find_and_project_best_matching_points(self, red_l_0=None, red_l_1=None,
                                               white_l_0=None, white_l_1=None,
@@ -811,7 +812,7 @@ class LineDetectorNode(DTROS):
         return theta * 57.296
 
     @staticmethod
-    def filter_perpendicular_lines(lines_color1, lines_color2, thres_angle=40.):
+    def filter_perpendicular_lines(lines_color1, lines_color2, thres_angle=30.):
         perpendicular_lines = []
         for i, lc1 in enumerate(lines_color1):
             for j, lc2 in enumerate(lines_color2):

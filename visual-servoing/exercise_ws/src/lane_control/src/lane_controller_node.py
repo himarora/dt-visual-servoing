@@ -207,27 +207,26 @@ class LaneControllerNode(DTROS):
         self.pub_car_cmd.publish(car_cmd_msg)
 
     def updatePath(self, homog_msg):
-        if homog_msg.H is not None:
-            self.homog_pub = True
-            print(homog_msg.H)
-            homog_mat = np.array(homog_msg.H).reshape(3,3)
-            # Check if we are already very close to identity
-            if (np.trace(homog_mat) - 3) > self.params['~homog_tol'] or \
-                np.linalg.norm(homog_mat[0:2,2]) > self.params['~homog_tol'] or \
-                any(np.isnan(homog_mat[0:2,2])) and \
-                rospy.Time.now().to_sec() - self.last_s > self.params['~plan_min_exec_time']:
+        if homog_msg.H is not None and not isnan(homog_msg.H[0]):
+                self.homog_pub = True
+                homog_mat = np.array(homog_msg.H).reshape(3,3)
+                # Check if we are already very close to identity
+                if (np.trace(homog_mat) - 3) > self.params['~homog_tol'] or \
+                    np.linalg.norm(homog_mat[0:2,2]) > self.params['~homog_tol'] or \
+                    any(np.isnan(homog_mat[0:2,2])) and \
+                    rospy.Time.now().to_sec() - self.last_s > self.params['~plan_min_exec_time']:
 
-                print("path updating")
+                    print("path updating")
 
-                path, u, dist = self.planner.get_new_path(homog_mat)
-                # If we get all none then we have no new plan
-                if not(path == None and u == None and dist == None):
-                    self.path_dist = dist
-                    self.u = u
-                    self.last_s = rospy.Time.now().to_sec()
-            else:
-                self.path_dist = 0
-                self.u = None
+                    path, u, dist = self.planner.get_new_path(homog_mat)
+                    # If we get all none then we have no new plan
+                    if not(path.all() == None and u.all() == None and dist == None):
+                        self.path_dist = dist
+                        self.u = u
+                        self.last_s = rospy.Time.now().to_sec()
+                else:
+                    self.path_dist = 0
+                    self.u = None
         else:
             self.homog_pub = False
 
