@@ -250,7 +250,6 @@ class LaneControllerNode(DTROS):
         car_control_msg.header = pose_msg.header
 
         # Add commands to car message
-        #omega = -omega          # For some reason the convention is flipped for control input
         print("v: " + str(self.params['~k_v']*v))
         print("omega: " + str(self.params['~k_omega']*omega))
         car_control_msg.v = self.params['~k_v']*v

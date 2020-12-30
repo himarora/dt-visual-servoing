@@ -68,13 +68,13 @@ class LanePlanner:
             if isnan(dist_min):
                 u[0,:] = dt
             path = None
-        #elif isnan(dist_min):
-        #    # Finally check if we should just drive straight
-        #    print("just drive straight")
-        #    u = np.zeros([2, num_dt])
-        #    u[0,:] = dt
-        #    path = None
-        #    dist = dist_min
+        elif isnan(dist_min):
+            # Finally check if we should just drive straight
+            print("just drive straight")
+            u = np.zeros([2, num_dt])
+            u[0,:] = dt/2
+            path = None
+            dist = dist_min
         else:
             print("hard setting zeros")
             path = None

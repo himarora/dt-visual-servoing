@@ -320,6 +320,7 @@ class LineDetectorNode(DTROS):
                 self.checkpoint_images = [self.current_image]
                 print("Restarted Checkpoint Collection")
                 print(f"Saved checkpoint. Total checkpoints: {len(self.checkpoint_images)}")
+                print(f"H: {self.H}")
         else:  # If in checkpoint collection mode, save the image as a future checkpoint
             self.checkpoint_index = None  # No checkpoint should be active in checkpoint collection mode
             self.checkpoint_images.append(self.current_image)
@@ -461,7 +462,8 @@ class LineDetectorNode(DTROS):
         if not np.isnan(self.H).any():
             norm = np.linalg.norm(np.abs(self.H - np.eye(3)))
         else:
-            norm = np.linalg.norm(np.abs(self.H[:2, :2] - np.eye(2)))
+            #norm = np.linalg.norm(np.abs(self.H[:2, :2] - np.eye(2)))
+            norm = thres*2      # We dont want to exit
         print(f"Norm: {norm}")
         if norm < thres:
             self.checkpoint_index += 1
