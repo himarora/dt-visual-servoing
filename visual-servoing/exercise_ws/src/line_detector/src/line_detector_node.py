@@ -232,6 +232,7 @@ class LineDetectorNode(DTROS):
 
         # Current state variables
         self.current_image = None
+        self.current_edges = None
         self.current_lines = [[None] * 3, [None] * 3, [None] * 3]  # WYR
         self.current_lines_cv = [[None] * 4, [None] * 4, [None] * 4]  # WYR
         self.current_lines_par = [[None] * 3, [None] * 3, [None] * 3]  # WYR
@@ -259,6 +260,7 @@ class LineDetectorNode(DTROS):
 
     def init_checkpoint_state_variables(self):
         self.checkpoint_image = None
+        self.checkpoint_edge = None
         self.checkpoint_lines = [[None] * 3, [None] * 3, [None] * 3]  # WYR
         self.checkpoint_lines_cv = [[None] * 4, [None] * 4, [None] * 4]  # WYR
         self.checkpoint_lines_par = [[None] * 3, [None] * 3, [None] * 3]  # WYR
@@ -271,6 +273,7 @@ class LineDetectorNode(DTROS):
         self.checkpoint_im_white = None
         self.checkpoint_l_white = None
         self.checkpoint_images = []
+        self.checkpoint_edges = []
         self.checkpoint_index = None
         self.H = None
 
@@ -311,20 +314,25 @@ class LineDetectorNode(DTROS):
         if self.mode_vs:
             if ckp_monitor:  # Crossed a checkpoint, set the image as new checkpoint
                 self.checkpoint_image = self.checkpoint_images[self.checkpoint_index]
-                self.publish_color_coordinates(self.checkpoint_image, checkpoint=True)
-                print(f"MOVED TO CHECKPOINT {self.checkpoint_index}")
+                self.checkpoint_edge = self.checkpoint_edges[self.checkpoint_index]
+                self.publish_color_coordinates(self.checkpoint_image, True, self.checkpoint_edge)
+                print(f"MOVED TO CHECKPOINT {self.checkpoint_index} with id {id(self.checkpoint_image)}")
                 return
             else:  # Called by script, restart checkpoint collection mode
                 self.mode_vs = False
                 self.init_checkpoint_state_variables()
                 self.checkpoint_images = [self.current_image]
+                self.checkpoint_edges = [self.current_edges]
                 print("Restarted Checkpoint Collection")
                 print(f"Saved checkpoint. Total checkpoints: {len(self.checkpoint_images)}")
                 print(f"H: {self.H}")
         else:  # If in checkpoint collection mode, save the image as a future checkpoint
             self.checkpoint_index = None  # No checkpoint should be active in checkpoint collection mode
-            self.checkpoint_images.append(self.current_image)
-            print(f"Saved checkpoint. Total checkpoints: {len(self.checkpoint_images)}")
+            current_image = self.current_image.copy()
+            current_edge = self.current_edges.copy()
+            self.checkpoint_images.append(current_image)
+            self.checkpoint_edges.append(current_edge)
+            print(f"Saved checkpoint {id(current_image)}. Total checkpoints: {len(self.checkpoint_images)}")
 
     def cb_start_vs(self, msg):
         if self.mode_vs:
@@ -1078,7 +1086,7 @@ class LineDetectorNode(DTROS):
         self.handle_ground_coordinates(color_coordinates_msg, checkpoint=True)
         # self.set_lines_from_ground_coordinates(color_coordinates_msg, checkpoint=True)
 
-    def publish_color_coordinates(self, image, checkpoint=False):
+    def publish_color_coordinates(self, image, checkpoint=False, im_edge=None):
         """
         Publishes color coordinate values given current image or checkpoint image. Subscribed by Ground Projection Node.
         :param image: Current image or Checkpoint image
@@ -1092,7 +1100,9 @@ class LineDetectorNode(DTROS):
                 "MIN": np.array([165, 140, 100], np.uint8), "MAX": np.array([180, 255, 255], np.uint8)
             })
         }
-        im_edge = self.detector.canny_edges
+        if im_edge is None:
+            im_edge = self.detector.canny_edges
+            self.current_edges = im_edge
         im_hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         pixel_list_msgs = []
         all_coordinates = []
