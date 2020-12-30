@@ -1129,8 +1129,11 @@ class LineDetectorNode(DTROS):
                 ret, thresh = cv2.threshold(im_white, 127, 255, 0)
                 contours, hierarchy = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
                 im_contour_0 = cv2.drawContours(im_white, contours, -1, (0, 255, 0), 3)
-                white_line = cv2.fitLine(color_coordinates, cv2.DIST_HUBER, 0, 0.01, 0.01)
-                white_line = self.get_abc(*white_line)
+                if len(color_coordinates) > 1:
+                    white_line = cv2.fitLine(color_coordinates, cv2.DIST_HUBER, 0, 0.01, 0.01)
+                    white_line = self.get_abc(*white_line)
+                else:
+                    white_line = None
                 if checkpoint:
                     self.checkpoint_im_white = im_contour_0
                     self.checkpoint_l_white = white_line
