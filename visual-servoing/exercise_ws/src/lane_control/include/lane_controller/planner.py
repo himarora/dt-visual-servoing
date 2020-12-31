@@ -50,25 +50,15 @@ class LanePlanner:
 
         # If travel distance decent, use dubins path
         if dist_min > min_dist:
-            print("getting path")
             con = {'type': 'ineq', 'fun': self.cons_fun, 'args': (x_curr, x_targ, dt, dist_max)}
             res = sciopt.minimize(self.opt_rad, min_r, args=(x_curr, x_targ, dt), bounds=bnds, constraints=con)
             max_r_opt = res.x
 
             path, u, dist = self.gen_path(x_curr, x_targ, max_r_opt, dt)
             u[1,:] = -u[1,:]
-            print("")
-            print(max_r_opt)
-            print("planned path")
-            print(path)
-            print("planned input")
-            print(u)
-            print(x_targ)
-            print("")
         elif abs(x_targ[2] - x_curr[2]) > min_angle:
             # If we only want to turn
             # Accomplish turn in 10 time steps
-            print("turn only")
             u = np.zeros([2, num_dt])
             u[1,:] = (x_curr[2] + x_targ[2])/(num_dt*dt)        # Plus here since we already flipped -targ above
             dist = dist_min
@@ -80,14 +70,12 @@ class LanePlanner:
         elif isnan(x_targ[0]) and isnan(x_targ[1]):
             # This means our target is a line and point but we only see lines right now
             # We should just drive straight
-            print("just drive straight")
             u = np.zeros([2, num_dt])
             u[0,:] = dt
             path = np.array([None, None])
             dist = dist_min
         else:
             # If we get here, we are confused and should just continue the previous plan
-            print("continuing previous path")
             path = np.array([None, None])
             u = np.array([None, None])
             dist = None

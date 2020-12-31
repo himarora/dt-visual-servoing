@@ -132,28 +132,28 @@ class LaneControllerNode(DTROS):
         self.log("Initialized!")
 
     def cbJoy(self, joy_msg):
+        # This topic is here for the hopefully eventual implementation of
+        # user input for deciding which direction to turn!
         self.joy = joy_msg
-        # S key pressed
         if joy_msg.buttons[6] == 1:
-            print("S pressed")
+            #print("S pressed")
             self.save_toggl = False
         elif joy_msg.buttons[3] == 1:
-            print("E pressed")
+            #print("E pressed")
             self.save_toggl = True
 
         if self.save_toggl:
             if joy_msg.axes[1] == 1.0:
-                print("straight path requested")
-                LineDetectorNode.cb_start_vs("msg")
+                #print("straight path requested")
                 self.save_toggl = False
             elif joy_msg.axes[3] == 1.0:
-                print("left path requested")
+                #print("left path requested")
                 self.save_toggl = False
             elif joy_msg.axes[3] == -1.0:
-                print("right path requested")
+                #print("right path requested")
                 self.save_toggl = False
             elif joy_msg.axes[1] == -1.0:
-                print("back button requested")
+                #print("back button requested")
                 self.save_toggl = False
 
     def cbObstacleStopLineReading(self,msg):
@@ -230,8 +230,6 @@ class LaneControllerNode(DTROS):
                     any(np.isnan(homog_mat[0:2,2])) and \
                     rospy.Time.now().to_sec() - self.last_s > self.params['~plan_min_exec_time']:
 
-                    print("path updating")
-
                     path, u, dist = self.planner.get_new_path(homog_mat)
                     # If we get all none then we have no new plan
                     if not(path.all() == None and u.all() == None and dist == None):
@@ -272,9 +270,6 @@ class LaneControllerNode(DTROS):
         # Add commands to car message
         car_control_msg.v =  max(min(self.params['~k_v']*v, 1.0), -1.0)
         car_control_msg.omega = self.params['~k_omega']*omega
-
-        print("v: " + str(car_control_msg.v))
-        print("omega: " + str(car_control_msg.omega))
 
         self.publishCmd(car_control_msg)
         

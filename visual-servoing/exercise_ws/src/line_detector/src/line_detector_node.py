@@ -7,14 +7,13 @@ import os
 import time
 import rospy
 from cv_bridge import CvBridge
-from sensor_msgs.msg import CompressedImage, Image
+from sensor_msgs.msg import CompressedImage, Image, Joy
 from duckietown_msgs.msg import Segment, SegmentList, AntiInstagramThresholds, BoolStamped
 from std_msgs.msg import String
 from line_detector import LineDetector, ColorRange, plotSegments, plotMaps
 from image_processing.anti_instagram import AntiInstagram
 from custom_msgs.msg import Pixel, PixelList, PixelListList, FloatList
 from duckietown.dtros import DTROS, NodeType, TopicType
-
 
 class LineDetectorNode(DTROS):
     """
@@ -230,6 +229,7 @@ class LineDetectorNode(DTROS):
         self.sub_checkpoints_to_disk = rospy.Subscriber("/agent/line_detector_node/checkpoints_to_disk", String,
                                                         self.cb_checkpoints_to_disk,
                                                         queue_size=1)
+        self.sub_joy_ = rospy.Subscriber("joy", Joy, self.cbJoy, queue_size=1)
 
         # Current state variables
         self.current_image = None
@@ -243,6 +243,8 @@ class LineDetectorNode(DTROS):
         self.current_perp_lines = [[], []]
         self.current_im_white = None
         self.current_l_white = None
+        self.save_toggl = False
+        self.lockout_toggl = False
 
         # Checkpoint state variables
         self.init_checkpoint_state_variables()
@@ -261,6 +263,49 @@ class LineDetectorNode(DTROS):
 
         if self.checkpoints_dir is not None and self.checkpoints_dir != "None":
             self.load_checkpoints_from_disk()
+
+    def cbJoy(self, joy_msg):
+        self.joy = joy_msg
+        if joy_msg.buttons[6] == 1:
+            #print("S pressed")
+            self.save_toggl = False
+            self.lockout_toggl = False
+        elif joy_msg.buttons[3] == 1:
+            #print("E pressed")
+            self.save_toggl = True
+        elif joy_msg.buttons[7] == 1:
+            #print("A pressed")
+            # When in autonomous lockout line detector node joystick commands
+            self.lockout_toggl = True
+        #elif joy_msg.buttons
+        #self.cb_key_pressed(None, True)
+
+        if self.save_toggl and not self.lockout_toggl:
+            if joy_msg.axes[1] == 1.0:
+                #print("forward arrow pressed")
+                self.cb_start_vs(None)
+                self.save_toggl = False
+            elif joy_msg.axes[3] == 1.0:
+                #print("left arrow pressed")
+                if self.checkpoints_dir == "None":
+                    self.cb_key_pressed(None, True)
+                else:
+                    print("Checkpoint directory provided, cannot add new checkpoints.")
+                self.save_toggl = False
+            elif joy_msg.axes[3] == -1.0:
+                #print("right arrow pressed")
+                if self.checkpoints_dir == "None":
+                    self.cb_checkpoints_to_disk(None)
+                else:
+                    print("Checkpoint directory provided, cannot save new checkpoints.")
+                self.save_toggl = False
+            elif joy_msg.axes[1] == -1.0:
+                #print("back arrow pressed")
+                self.H = np.eye(3)
+                self.update_checkpoint_if_needed(thres=100000.0)
+                self.H = None
+                self.save_toggl = False
+
 
     def load_checkpoints_from_disk(self):
         files = os.listdir(self.checkpoints_dir)
