@@ -22,5 +22,8 @@ line_detector_parameters:
   hough_min_line_length: 3
   hough_max_line_gap: 1
 
-#checkpoints_path: /code/exercise_ws/checkpoints/1230-174103/
-checkpoints_path: None
+#checkpoints_path: None
+#checkpoints_path: /code/exercise_ws/checkpoints/approach_red
+checkpoints_path: /code/exercise_ws/checkpoints/turn_right
+#checkpoints_path: /code/exercise_ws/checkpoints/turn_straight
+#checkpoints_path: /code/exercise_ws/checkpoints/turn_left

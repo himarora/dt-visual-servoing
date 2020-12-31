@@ -494,7 +494,7 @@ class LineDetectorNode(DTROS):
             self.pub_homography.publish(homography_msg)
             self.update_checkpoint_if_needed()
 
-    def update_checkpoint_if_needed(self, thres=0.02):
+    def update_checkpoint_if_needed(self, thres=0.04):
         if self.H is not None:
             if not((np.trace(self.H) - 3) > thres or \
                 np.linalg.norm(self.H[0:2,2]) > thres or \
@@ -502,7 +502,9 @@ class LineDetectorNode(DTROS):
                 if self.checkpoint_index is not None:
                     self.checkpoint_index += 1
                 # Finished all the checkpoints, turn off visual servoing mode, but don't remove checkpoints from memory
-                if self.checkpoint_index == len(self.checkpoint_images):
+                if self.checkpoint_index == len(self.checkpoint_images) or \
+                    ((self.checkpoint_index == len(self.checkpoint_images)-1 and self.checkpoint_index !=0) and \
+                        (np.trace(self.H) - 3) < thres and any(np.isnan(self.H[0:2,2]))):
                     self.mode_vs = False
                     self.checkpoint_index = None
                     self.H = None
@@ -1006,7 +1008,7 @@ class LineDetectorNode(DTROS):
         #     self.pub_homography.publish(homography_msg)
 
     @staticmethod
-    def group_points_together(filtered_pts, pt_group_dist_x=0.15, pt_group_dist_y=0.15, group_size_ignore=4):
+    def group_points_together(filtered_pts, pt_group_dist_x=0.15, pt_group_dist_y=0.15, group_size_ignore=3):
         filtered_pts = np.array(filtered_pts).tolist()
         list_of_pt_groups = []
         for curr_pt in filtered_pts:

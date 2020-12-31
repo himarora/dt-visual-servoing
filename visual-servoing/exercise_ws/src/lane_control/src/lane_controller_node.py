@@ -134,13 +134,27 @@ class LaneControllerNode(DTROS):
     def cbJoy(self, joy_msg):
         self.joy = joy_msg
         # S key pressed
-        print(joy_msg.buttons)
         if joy_msg.buttons[6] == 1:
             print("S pressed")
             self.save_toggl = False
         elif joy_msg.buttons[3] == 1:
             print("E pressed")
             self.save_toggl = True
+
+        if self.save_toggl:
+            if joy_msg.axes[1] == 1.0:
+                print("straight path requested")
+                LineDetectorNode.cb_start_vs("msg")
+                self.save_toggl = False
+            elif joy_msg.axes[3] == 1.0:
+                print("left path requested")
+                self.save_toggl = False
+            elif joy_msg.axes[3] == -1.0:
+                print("right path requested")
+                self.save_toggl = False
+            elif joy_msg.axes[1] == -1.0:
+                print("back button requested")
+                self.save_toggl = False
 
     def cbObstacleStopLineReading(self,msg):
         """
@@ -247,10 +261,6 @@ class LaneControllerNode(DTROS):
             omega = 0
         elif self.u is not None:
             v, omega = self.controller.compute_control_action(self.u, self.path_dist, dt)
-        elif self.homog_pub:
-            # If we're getting homographies but u is none, just slowly drive forward
-            v = 0.2
-            omega = 0.0
         else:
             v = 0.0
             omega = 0.0
@@ -260,10 +270,11 @@ class LaneControllerNode(DTROS):
         car_control_msg.header = pose_msg.header
 
         # Add commands to car message
-        print("v: " + str(self.params['~k_v']*v))
-        print("omega: " + str(self.params['~k_omega']*omega))
-        car_control_msg.v = self.params['~k_v']*v
+        car_control_msg.v =  max(min(self.params['~k_v']*v, 1.0), -1.0)
         car_control_msg.omega = self.params['~k_omega']*omega
+
+        print("v: " + str(car_control_msg.v))
+        print("omega: " + str(car_control_msg.omega))
 
         self.publishCmd(car_control_msg)
         

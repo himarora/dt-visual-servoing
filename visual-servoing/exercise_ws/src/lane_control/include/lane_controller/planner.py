@@ -56,8 +56,9 @@ class LanePlanner:
             max_r_opt = res.x
 
             path, u, dist = self.gen_path(x_curr, x_targ, max_r_opt, dt)
-            #u[1,:] = -u[1,:]
+            u[1,:] = -u[1,:]
             print("")
+            print(max_r_opt)
             print("planned path")
             print(path)
             print("planned input")
@@ -76,11 +77,12 @@ class LanePlanner:
             if isnan(dist_min):
                 u[0,:] = dt
             path = np.array([None, None])
-        elif isnan(dist_min):
-            # Finally check if we should just drive straight
+        elif isnan(isnan(x_curr[0]) and isnan(x_curr[1])) and not isnan(isnan(x_targ[0]) and isnan(x_targ[1])):
+            # This means our target is a line and point but we only see lines right now
+            # We should just drive straight
             print("just drive straight")
             u = np.zeros([2, num_dt])
-            u[0,:] = dt/2
+            u[0,:] = dt
             path = np.array([None, None])
             dist = dist_min
         else:
@@ -150,7 +152,7 @@ class LanePlanner:
         theta = self.SO2_decompose(C)
         r = SE2_el[0:2,2]
 
-        return[-r[0], r[1], theta]
+        return[r[1], -r[0], theta]
 
     def SO2_decompose(self, SO2_el):
         theta = np.arccos(SO2_el[0, 0])
