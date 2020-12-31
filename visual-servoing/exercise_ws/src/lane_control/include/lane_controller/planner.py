@@ -77,7 +77,7 @@ class LanePlanner:
             if isnan(dist_min):
                 u[0,:] = dt
             path = np.array([None, None])
-        elif isnan(isnan(x_curr[0]) and isnan(x_curr[1])) and not isnan(isnan(x_targ[0]) and isnan(x_targ[1])):
+        elif isnan(x_targ[0]) and isnan(x_targ[1]):
             # This means our target is a line and point but we only see lines right now
             # We should just drive straight
             print("just drive straight")

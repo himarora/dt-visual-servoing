@@ -24,6 +24,6 @@ line_detector_parameters:
 
 #checkpoints_path: None
 #checkpoints_path: /code/exercise_ws/checkpoints/approach_red
-checkpoints_path: /code/exercise_ws/checkpoints/turn_right
-#checkpoints_path: /code/exercise_ws/checkpoints/turn_straight
+#checkpoints_path: /code/exercise_ws/checkpoints/turn_right
+checkpoints_path: /code/exercise_ws/checkpoints/turn_straight
 #checkpoints_path: /code/exercise_ws/checkpoints/turn_left
